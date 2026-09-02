@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Environment secrets
+.env
+
+# Ephemeral face crops & artifacts
+temp/
+artifacts/
+
+# OS junk
+Thumbs.db
+.DS_Store
