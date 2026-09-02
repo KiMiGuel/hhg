@@ -10,6 +10,12 @@ venv/
 # Ephemeral face crops & artifacts
 temp/
 artifacts/
+reports/
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
 
 # OS junk
 Thumbs.db

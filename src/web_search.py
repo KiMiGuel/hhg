@@ -20,6 +20,22 @@ CATBOX_UPLOAD_URL = "https://catbox.moe/user/api.php"
 TMPFILES_UPLOAD_URL = "https://tmpfiles.org/api/v1/upload"
 
 
+def filter_social_match(visual_matches: list) -> dict | None:
+    """Pure helper: scan Lens visual matches against the social platform
+    whitelist and return the first genuine social post, or None."""
+    for match in visual_matches or []:
+        link = match.get("link", "") or ""
+        for platform in SOCIAL_PLATFORMS:
+            if platform in link:
+                return {
+                    "title": match.get("title", "Social Profile Match"),
+                    "link": link,
+                    "source": match.get("source", platform),
+                    "platform": platform,
+                }
+    return None
+
+
 class WebSearchEngine:
     """Stage 2: ephemeral image hosting + genuine Google Lens reverse search."""
 
@@ -88,17 +104,10 @@ class WebSearchEngine:
                 }
             raise RuntimeError("No visual matches found on the web for the provided face scan.")
 
-        # Prefer the first genuine social media post/profile
-        for match in visual_matches:
-            link = match.get("link", "") or ""
-            for platform in SOCIAL_PLATFORMS:
-                if platform in link:
-                    return {
-                        "title": match.get("title", "Social Profile Match"),
-                        "link": link,
-                        "source": match.get("source", platform),
-                        "platform": platform,
-                    }
+        # Prefer the first genuine social media post (pure, testable filter)
+        social = filter_social_match(visual_matches)
+        if social:
+            return social
 
         # Fallback to the top visual match if no social domain matched exactly
         top_match = visual_matches[0]
