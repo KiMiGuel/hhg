@@ -65,30 +65,38 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False):
     }
 
     # ---------------------------------------------------------------- Stage 1
+    t_start = time.perf_counter()
     console.print("\n[bold yellow]>> [STAGE 1] Face Detection & Biometric Encoding[/bold yellow]")
     face_engine = FaceEngine()
     with console.status("[bold green]Detecting facial bounds and calculating embedding vector..."):
-        crop_path, face_hash, bbox = face_engine.process_image(input_image_path)
+        crop_path, face_hash, bbox, confidence, quality = face_engine.process_image(input_image_path)
 
-    # Show OpenCV windows with bounding box + landmarks
-    show_face_detection(input_image_path, bbox)
+    # Show OpenCV windows with bounding box + landmarks (auto-close after 2s, skip in demo mode)
+    if not demo_mode:
+        show_face_detection(input_image_path, bbox, auto_close_ms=2000)
+    else:
+        console.print("[dim]  (OpenCV windows skipped in demo mode)[/dim]")
 
     # Display ASCII art face + hash panel side by side
     console.print(render_face_panel(crop_path, "Detected Face"))
     console.print(render_hash_panel(face_hash, face_engine_mod.EMBEDDING_DIM))
 
-    console.print(f"[green]✔[/green] Face detected at bbox (x, y, w, h): {bbox}")
+    elapsed = time.perf_counter() - t_start
+    console.print(f"[green]✔[/green] Face detected at bbox (x, y, w, h): {bbox} (confidence: {confidence:.2f})")
     console.print(f"[green]✔[/green] Face cropped and saved to: [bold]{crop_path}[/bold]")
     console.print(
         f"[green]✔[/green] SFace Embedding dim: [bold]{face_engine_mod.EMBEDDING_DIM}[/bold] "
-        "(128-d biometric vector)"
+        "(128-d biometric vector, L2-normalized)"
     )
     console.print(f"[green]✔[/green] Biometric Hash (SHA-256): [bold cyan]{face_hash}[/bold cyan]")
+    console.print(f"[dim]  Stage 1 completed in {elapsed:.2f}s[/dim]")
     report["stage1"].update(
-        {"bbox": list(bbox), "embedding_dim": face_engine_mod.EMBEDDING_DIM, "face_hash": face_hash}
+        {"bbox": list(bbox), "embedding_dim": face_engine_mod.EMBEDDING_DIM,
+         "face_hash": face_hash, "confidence": confidence, "quality_pass": quality["pass"]}
     )
 
     # ---------------------------------------------------------------- Stage 2
+    t_stage2 = time.perf_counter()
     console.print("\n[bold yellow]>> [STAGE 2] Dynamic Web & Social Media Discovery[/bold yellow]")
     console.print(render_stage_progress(2))
 
@@ -120,6 +128,8 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False):
     table.add_row("Platform / Source", str(match_data["platform"]))
     table.add_row("Target Post URL", str(match_data["link"]))
     console.print(table)
+    elapsed2 = time.perf_counter() - t_stage2
+    console.print(f"[dim]  Stage 2 completed in {elapsed2:.2f}s[/dim]")
     report["stage2"].update(
         {
             "image_host_url": public_image_url,
@@ -130,6 +140,7 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False):
     )
 
     # ---------------------------------------------------------------- Stage 3
+    t_stage3 = time.perf_counter()
     console.print(
         "\n[bold yellow]>> [STAGE 3] Cryptographic Fingerprinting & Blockchain Anchoring[/bold yellow]"
     )
@@ -173,7 +184,11 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False):
             "gas_used": gas,
         }
 
+    elapsed3 = time.perf_counter() - t_stage3
+    console.print(f"[dim]  Stage 3 completed in {elapsed3:.2f}s[/dim]")
+
     # ---------------------------------------------------------------- Stage 4
+    t_stage4 = time.perf_counter()
     console.print(
         "\n[bold yellow]>> [STAGE 4] On-Chain Audit & Tamper-Evidence Proof[/bold yellow]"
     )
@@ -242,10 +257,26 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False):
         }
     )
 
+    elapsed4 = time.perf_counter() - t_stage4
+    console.print(f"[dim]  Stage 4 completed in {elapsed4:.2f}s[/dim]")
+
     # ------------------------------------------------- Audit report artifact
     report["network"]["chain_id"] = bc_manager.w3.eth.chain_id
     report_path = write_report(report)
     console.print(f"\n[bold yellow]>> Audit report saved to:[/bold yellow] [bold]{report_path}[/bold]")
+
+    # ---- Total pipeline timing ----
+    total_elapsed = time.perf_counter() - t_start
+    timing_summary = (
+        f"[bold cyan]Pipeline timing summary[/bold cyan]\n"
+        f"  Stage 1 (Face Detection):    {elapsed:.2f}s\n"
+        f"  Stage 2 (Web Search):        {elapsed2:.2f}s\n"
+        f"  Stage 3 (Blockchain Anchor): {elapsed3:.2f}s\n"
+        f"  Stage 4 (Verification):      {elapsed4:.2f}s\n"
+        f"  ─────────────────────────────────\n"
+        f"  [bold]Total: {total_elapsed:.2f}s[/bold]"
+    )
+    console.print(Panel(timing_summary, border_style="cyan"))
 
     console.print(
         Panel.fit(

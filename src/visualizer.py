@@ -31,9 +31,18 @@ ASCII_WIDTH = 60  # terminal columns for the face ASCII art
 console = Console()
 
 
-def show_face_detection(image_path: str, bbox: tuple, landmarks: np.ndarray = None):
+def show_face_detection(image_path: str, bbox: tuple, landmarks: np.ndarray = None,
+                       auto_close_ms: int = 0):
     """Display OpenCV windows showing the detected face with bounding box
-    and facial landmarks. Blocks until the user closes the windows."""
+    and facial landmarks.
+
+    Args:
+        image_path: Path to the input image.
+        bbox: (x, y, w, h) bounding box.
+        landmarks: Optional 10-element array of 5 (x, y) landmark coordinates.
+        auto_close_ms: If > 0, windows auto-close after this many milliseconds.
+                       If 0, blocks until user closes windows (default).
+    """
     image = cv2.imread(image_path)
     if image is None:
         return
@@ -59,9 +68,9 @@ def show_face_detection(image_path: str, bbox: tuple, landmarks: np.ndarray = No
     cropped = image[y1:y2, x1:x2]
 
     # Show windows
-    cv2.imshow("Stage 1: Face Detection (close to continue)", annotated)
+    cv2.imshow("Stage 1: Face Detection", annotated)
     cv2.imshow("Stage 1: Cropped Face", cropped)
-    cv2.waitKey(0)
+    cv2.waitKey(auto_close_ms)
     cv2.destroyAllWindows()
 
 

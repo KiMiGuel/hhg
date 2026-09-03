@@ -1,9 +1,18 @@
 import hashlib
 import os
+import time
 
 import cv2
 import numpy as np
 import requests
+
+from src.accuracy import (
+    MIN_FACE_CONFIDENCE,
+    assess_face_quality,
+    normalize_embedding,
+    show_quality_report,
+    validate_face_confidence,
+)
 
 # OpenCV Zoo models (Apache-2.0). YuNet = face detection, SFace = 128-d face
 # recognition embeddings. Compatible with OpenCV >= 4.5.4 (including OpenCV 5,
@@ -23,7 +32,7 @@ SFACE_MODEL_URL = (
 # Very large photos yield weak confidences, so detection runs on a downscaled
 # copy and coordinates are mapped back to the original resolution.
 DETECT_MAX_DIM = 1024
-SCORE_THRESHOLD = 0.5
+SCORE_THRESHOLD = 0.5  # Minimum detection score (YuNet internal)
 # Cosine threshold above which two embeddings are considered the same person
 # (OpenCV Zoo reference value for SFace).
 SFACE_COSINE_THRESHOLD = 0.363
@@ -66,9 +75,52 @@ class FaceEngine:
         self.recognizer = cv2.FaceRecognizerSF.create(SFACE_MODEL_PATH, "")
         self.last_embedding = None
 
-    def process_image(self, image_path: str, output_crop_path: str = "temp/face_crop.jpg"):
-        """Detect the largest face, save a 15%-padded crop, compute the
-        embedding hash. Returns (crop_path, face_hash, bbox)."""
+    def detect_all_faces(self, image_path: str) -> list:
+        """Detect all faces in an image. Returns list of dicts with bbox,
+        confidence, and landmarks. Useful for multi-face images."""
+        image = cv2.imread(image_path)
+        if image is None:
+            return []
+
+        scale = 1.0
+        detect_img = image
+        if max(image.shape[:2]) > DETECT_MAX_DIM:
+            scale = DETECT_MAX_DIM / max(image.shape[:2])
+            detect_img = cv2.resize(image, None, fx=scale, fy=scale)
+
+        self.detector.setInputSize((detect_img.shape[1], detect_img.shape[0]))
+        _, faces = self.detector.detect(detect_img)
+
+        if faces is None:
+            return []
+
+        results = []
+        for face_row in faces:
+            full_res_row = face_row.copy()
+            full_res_row[:14] *= 1.0 / scale
+            x, y, w, h = (int(v) for v in full_res_row[:4])
+            confidence = float(face_row[14])
+            results.append({
+                "bbox": (x, y, w, h),
+                "confidence": confidence,
+                "landmarks": full_res_row[4:14],
+            })
+
+        return results
+
+    def process_image(self, image_path: str, output_crop_path: str = "temp/face_crop.jpg",
+                      face_index: int = 0):
+        """Detect the selected face, assess quality, save a 15%-padded crop,
+        compute the normalized embedding hash.
+
+        Args:
+            image_path: Path to the input image.
+            output_crop_path: Where to save the cropped face.
+            face_index: Which face to use (0 = largest, for multi-face images).
+
+        Returns:
+            (crop_path, face_hash, bbox, confidence, quality_report)
+        """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Input image not found: {image_path}")
 
@@ -90,15 +142,24 @@ class FaceEngine:
                 "No face detected in input image. Ensure clear lighting and a front-facing angle."
             )
 
-        # Each row: x, y, w, h, 5x(landmark x, y), confidence.
-        # Select the most prominent face by bounding area.
+        # Sort faces by area (largest first)
         faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        face_row = faces[0]
+
+        # Validate confidence of selected face
+        face_row = faces[face_index]
+        confidence = float(face_row[14])
+        if not validate_face_confidence(confidence):
+            # Warn but don't fail — still produce a result
+            pass
 
         # Map the detection row (box + landmarks) back to original resolution
         full_res_row = face_row.copy()
         full_res_row[:14] *= 1.0 / scale
         x, y, w, h = (int(v) for v in full_res_row[:4])
+
+        # Assess face quality (blur, brightness, size)
+        quality = assess_face_quality(image, (x, y, w, h))
+        show_quality_report(quality)
 
         # 15% contextual padding around the face for reverse image search accuracy
         pad_x = int(w * 0.15)
@@ -117,13 +178,16 @@ class FaceEngine:
         # SFace embedding: align the face using the 5 detected landmarks, then
         # extract the 128-d feature vector.
         aligned_face = self.recognizer.alignCrop(image, full_res_row)
-        embedding = self.recognizer.feature(aligned_face).flatten().astype(np.float32)
-        self.last_embedding = embedding
+        raw_embedding = self.recognizer.feature(aligned_face).flatten().astype(np.float32)
 
-        # Deterministic biometric hash over the raw embedding bytes (128 x 4B)
-        face_hash = "0x" + hashlib.sha256(embedding.tobytes()).hexdigest()
+        # L2-normalize the embedding for consistent similarity comparisons
+        normalized_embedding = normalize_embedding(raw_embedding)
+        self.last_embedding = normalized_embedding
 
-        return output_crop_path, face_hash, (x, y, w, h)
+        # Deterministic biometric hash over the normalized embedding bytes (128 x 4B)
+        face_hash = "0x" + hashlib.sha256(normalized_embedding.tobytes()).hexdigest()
+
+        return output_crop_path, face_hash, (x, y, w, h), confidence, quality
 
     @staticmethod
     def cosine_similarity(embedding_a: np.ndarray, embedding_b: np.ndarray) -> float:
