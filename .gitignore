@@ -12,6 +12,9 @@ temp/
 artifacts/
 reports/
 
+# SerpApi search result cache
+cache/
+
 # Testing
 .pytest_cache/
 htmlcov/

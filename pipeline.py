@@ -9,7 +9,9 @@ from rich.table import Table
 from src import face_engine as face_engine_mod
 from src.blockchain import BlockchainManager
 from src.config import CONTRACT_ADDRESS, PRIVATE_KEY, RPC_URL, SERPAPI_KEY
+from src.demo_data import get_demo_search_result
 from src.face_engine import FaceEngine
+from src.preflight import run_preflight
 from src.report import write_report
 from src.visualizer import (
     render_blockchain_panel,
@@ -26,12 +28,31 @@ from src.web_search import WebSearchEngine
 console = Console()
 
 
-def run_pipeline(input_image_path: str):
+def run_pipeline(input_image_path: str, demo_mode: bool = False):
     # ---- Visual header + stage progress ----
     console.print(render_pipeline_header())
+    if demo_mode:
+        console.print(
+            Panel(
+                "[bold yellow]DEMO MODE[/bold yellow] — using pre-recorded search result "
+                "(no SerpApi credits consumed, no internet required).",
+                border_style="yellow",
+            )
+        )
     console.print()
     console.print(render_stage_progress(1))
     console.print()
+
+    # ---- Pre-flight checks (validates everything before we start) ----
+    if not demo_mode:
+        run_preflight(input_image_path, require_serpapi=True)
+    else:
+        # In demo mode, only check the input image and blockchain (not Serpapi)
+        from src.preflight import check_input_image, check_rpc_connection, check_contract_deployed, check_models
+        check_input_image(input_image_path)
+        check_models()
+        w3 = check_rpc_connection()
+        check_contract_deployed(w3)
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -40,6 +61,7 @@ def run_pipeline(input_image_path: str):
         "stage2": {},
         "stage3": {},
         "stage4": {},
+        "demo_mode": demo_mode,
     }
 
     # ---------------------------------------------------------------- Stage 1
@@ -69,14 +91,24 @@ def run_pipeline(input_image_path: str):
     # ---------------------------------------------------------------- Stage 2
     console.print("\n[bold yellow]>> [STAGE 2] Dynamic Web & Social Media Discovery[/bold yellow]")
     console.print(render_stage_progress(2))
-    search_engine = WebSearchEngine(SERPAPI_KEY)
 
-    with console.status("[bold green]Uploading face crop to ephemeral image host..."):
-        public_image_url = search_engine.upload_image_to_temp_host(crop_path)
-    console.print(f"[green]✔[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
+    if demo_mode:
+        # Use pre-recorded search result — no upload, no SerpApi call
+        public_image_url = "https://files.catbox.moe/demo_face.jpg (DEMO: skipped)"
+        console.print(f"[green]✔[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
+        match_data = get_demo_search_result()
+        console.print(
+            f"[green]✔[/green] Using pre-recorded search result: "
+            f"[bold]{match_data['title']}[/bold]"
+        )
+    else:
+        search_engine = WebSearchEngine(SERPAPI_KEY)
+        with console.status("[bold green]Uploading face crop to ephemeral image host..."):
+            public_image_url = search_engine.upload_image_to_temp_host(crop_path)
+        console.print(f"[green]✔[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
 
-    with console.status("[bold green]Executing genuine Google Lens reverse search via SerpApi..."):
-        match_data = search_engine.search_face_on_web(public_image_url)
+        with console.status("[bold green]Executing genuine Google Lens reverse search via SerpApi..."):
+            match_data = search_engine.search_face_on_web(public_image_url)
 
     # Show side-by-side comparison: face ASCII art vs discovered post
     console.print(render_comparison_panel(crop_path, match_data))
@@ -224,9 +256,18 @@ def run_pipeline(input_image_path: str):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    # Parse --demo flag and image path from arguments
+    args = sys.argv[1:]
+    demo_mode = "--demo" in args or "--demo-mode" in args
+    if demo_mode:
+        args = [a for a in args if a not in ("--demo", "--demo-mode")]
+
+    if len(args) < 1:
         console.print(
-            "[bold red]Usage: python pipeline.py <path_to_input_image>[/bold red]"
+            "[bold red]Usage: python pipeline.py <path_to_input_image> [--demo][/bold red]\n\n"
+            "Options:\n"
+            "  --demo      Use pre-recorded search result (no SerpApi, no internet)\n"
+            "              Ideal for screen recordings and offline demos."
         )
         sys.exit(1)
-    run_pipeline(sys.argv[1])
+    run_pipeline(args[0], demo_mode=demo_mode)

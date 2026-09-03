@@ -1,5 +1,12 @@
+import json
+import os
+import hashlib
 import requests
 from serpapi import GoogleSearch
+
+# Cache directory for SerpApi results (avoids consuming credits on re-runs)
+CACHE_DIR = "cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Dynamic whitelist of social platforms for result filtering
 SOCIAL_PLATFORMS = [
@@ -42,6 +49,32 @@ class WebSearchEngine:
     def __init__(self, serpapi_key: str):
         self.serpapi_key = serpapi_key
 
+    def _cache_key(self, image_url: str) -> str:
+        """Generate a deterministic cache key for an image URL."""
+        return hashlib.sha256(image_url.encode("utf-8")).hexdigest()[:16]
+
+    def _get_cached_result(self, image_url: str) -> dict | None:
+        """Return cached search result if it exists, else None."""
+        key = self._cache_key(image_url)
+        cache_path = os.path.join(CACHE_DIR, f"{key}.json")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError):
+                return None
+        return None
+
+    def _cache_result(self, image_url: str, result: dict):
+        """Save a search result to the cache."""
+        key = self._cache_key(image_url)
+        cache_path = os.path.join(CACHE_DIR, f"{key}.json")
+        try:
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass  # caching is best-effort
+
     def upload_image_to_temp_host(self, file_path: str) -> str:
         """Upload the cropped face to a free zero-auth public host and return a
         direct image URL that Google Lens can crawl.
@@ -82,6 +115,11 @@ class WebSearchEngine:
                 "SERPAPI_KEY is not set. Get a free key (no credit card) at https://serpapi.com"
             )
 
+        # Check cache first to avoid consuming SerpApi credits
+        cached = self._get_cached_result(image_url)
+        if cached:
+            return cached
+
         params = {
             "engine": "google_lens",
             "url": image_url,
@@ -96,24 +134,35 @@ class WebSearchEngine:
             # Fallback to the knowledge graph if Lens returns no visual matches
             knowledge_graph = results.get("knowledge_graph", [])
             if knowledge_graph and "link" in knowledge_graph[0]:
-                return {
+                result = {
                     "title": knowledge_graph[0].get("title", "Discovered Profile"),
                     "link": knowledge_graph[0].get("link"),
                     "source": "Web Knowledge Graph",
                     "platform": "Web Profile",
                 }
-            raise RuntimeError("No visual matches found on the web for the provided face scan.")
+                self._cache_result(image_url, result)
+                return result
+            raise RuntimeError(
+                "No visual matches found on the web for the provided face scan.\n"
+                "  This can happen if:\n"
+                "  - The face has no public web presence (try a well-known public figure)\n"
+                "  - The image host URL is not crawlable by Google (try a different host)\n"
+                "  - SerpApi returned an error (check your API key and quota)"
+            )
 
         # Prefer the first genuine social media post (pure, testable filter)
         social = filter_social_match(visual_matches)
         if social:
+            self._cache_result(image_url, social)
             return social
 
         # Fallback to the top visual match if no social domain matched exactly
         top_match = visual_matches[0]
-        return {
+        result = {
             "title": top_match.get("title", "Online Entity Match"),
             "link": top_match.get("link", ""),
             "source": top_match.get("source", "Web"),
             "platform": "Discovered Web Article/Profile",
         }
+        self._cache_result(image_url, result)
+        return result
