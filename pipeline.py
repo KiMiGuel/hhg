@@ -11,18 +11,27 @@ from src.blockchain import BlockchainManager
 from src.config import CONTRACT_ADDRESS, PRIVATE_KEY, RPC_URL, SERPAPI_KEY
 from src.face_engine import FaceEngine
 from src.report import write_report
+from src.visualizer import (
+    render_blockchain_panel,
+    render_comparison_panel,
+    render_face_panel,
+    render_hash_panel,
+    render_pipeline_header,
+    render_stage_progress,
+    render_verification_panel,
+    show_face_detection,
+)
 from src.web_search import WebSearchEngine
 
 console = Console()
 
 
 def run_pipeline(input_image_path: str):
-    console.print(
-        Panel.fit(
-            "[bold cyan]HH GOA 2026 - TASK 3: FACE IDENTIFICATION & BLOCKCHAIN VERIFICATION[/bold cyan]",
-            border_style="cyan",
-        )
-    )
+    # ---- Visual header + stage progress ----
+    console.print(render_pipeline_header())
+    console.print()
+    console.print(render_stage_progress(1))
+    console.print()
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -38,27 +47,39 @@ def run_pipeline(input_image_path: str):
     face_engine = FaceEngine()
     with console.status("[bold green]Detecting facial bounds and calculating embedding vector..."):
         crop_path, face_hash, bbox = face_engine.process_image(input_image_path)
-    console.print(f"[green]+[/green] Face detected at bbox (x, y, w, h): {bbox}")
-    console.print(f"[green]+[/green] Face cropped and saved to: [bold]{crop_path}[/bold]")
+
+    # Show OpenCV windows with bounding box + landmarks
+    show_face_detection(input_image_path, bbox)
+
+    # Display ASCII art face + hash panel side by side
+    console.print(render_face_panel(crop_path, "Detected Face"))
+    console.print(render_hash_panel(face_hash, face_engine_mod.EMBEDDING_DIM))
+
+    console.print(f"[green]✔[/green] Face detected at bbox (x, y, w, h): {bbox}")
+    console.print(f"[green]✔[/green] Face cropped and saved to: [bold]{crop_path}[/bold]")
     console.print(
-        f"[green]+[/green] SFace Embedding dim: [bold]{face_engine_mod.EMBEDDING_DIM}[/bold] "
+        f"[green]✔[/green] SFace Embedding dim: [bold]{face_engine_mod.EMBEDDING_DIM}[/bold] "
         "(128-d biometric vector)"
     )
-    console.print(f"[green]+[/green] Biometric Hash (SHA-256): [bold cyan]{face_hash}[/bold cyan]")
+    console.print(f"[green]✔[/green] Biometric Hash (SHA-256): [bold cyan]{face_hash}[/bold cyan]")
     report["stage1"].update(
         {"bbox": list(bbox), "embedding_dim": face_engine_mod.EMBEDDING_DIM, "face_hash": face_hash}
     )
 
     # ---------------------------------------------------------------- Stage 2
     console.print("\n[bold yellow]>> [STAGE 2] Dynamic Web & Social Media Discovery[/bold yellow]")
+    console.print(render_stage_progress(2))
     search_engine = WebSearchEngine(SERPAPI_KEY)
 
     with console.status("[bold green]Uploading face crop to ephemeral image host..."):
         public_image_url = search_engine.upload_image_to_temp_host(crop_path)
-    console.print(f"[green]+[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
+    console.print(f"[green]✔[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
 
     with console.status("[bold green]Executing genuine Google Lens reverse search via SerpApi..."):
         match_data = search_engine.search_face_on_web(public_image_url)
+
+    # Show side-by-side comparison: face ASCII art vs discovered post
+    console.print(render_comparison_panel(crop_path, match_data))
 
     table = Table(title="Discovered Social / Web Content", border_style="green")
     table.add_column("Property", style="cyan")
@@ -80,10 +101,11 @@ def run_pipeline(input_image_path: str):
     console.print(
         "\n[bold yellow]>> [STAGE 3] Cryptographic Fingerprinting & Blockchain Anchoring[/bold yellow]"
     )
+    console.print(render_stage_progress(3))
     bc_manager = BlockchainManager(RPC_URL, PRIVATE_KEY, CONTRACT_ADDRESS)
     data_fingerprint = bc_manager.compute_data_fingerprint(face_hash, str(match_data["link"]))
     console.print(
-        f"[green]+[/green] Combined Canonical Fingerprint: [bold magenta]{data_fingerprint}[/bold magenta]"
+        f"[green]✔[/green] Combined Canonical Fingerprint: [bold magenta]{data_fingerprint}[/bold magenta]"
     )
 
     if bc_manager.record_exists(face_hash):
@@ -99,28 +121,42 @@ def run_pipeline(input_image_path: str):
         with console.status("[bold green]Broadcasting transaction to blockchain..."):
             receipt = bc_manager.anchor_record(face_hash, str(match_data["link"]), data_fingerprint)
         tx_hash = f"0x{receipt.transactionHash.hex()}"
+        block = int(receipt.blockNumber)
+        gas = int(receipt.gasUsed)
         console.print(
-            f"[green]+[/green] Transaction Confirmed! TxHash: [bold cyan]{tx_hash}[/bold cyan]"
+            f"[green]✔[/green] Transaction Confirmed! TxHash: [bold cyan]{tx_hash}[/bold cyan]"
         )
         console.print(
-            f"[green]+[/green] Included in Block Number: [bold]{receipt.blockNumber}[/bold] | "
-            f"Gas Used: {receipt.gasUsed}"
+            f"[green]✔[/green] Included in Block Number: [bold]{block}[/bold] | "
+            f"Gas Used: {gas}"
         )
+        # Show blockchain panel
+        console.print(render_blockchain_panel(tx_hash, block, gas))
         time.sleep(0.2)
         report["stage3"] = {
             "fingerprint": data_fingerprint,
             "already_anchored": False,
             "tx_hash": tx_hash,
-            "block": int(receipt.blockNumber),
-            "gas_used": int(receipt.gasUsed),
+            "block": block,
+            "gas_used": gas,
         }
 
     # ---------------------------------------------------------------- Stage 4
     console.print(
         "\n[bold yellow]>> [STAGE 4] On-Chain Audit & Tamper-Evidence Proof[/bold yellow]"
     )
+    console.print(render_stage_progress(4))
     with console.status("[bold green]Querying smart contract for re-verification..."):
         audit_result = bc_manager.verify_on_chain(face_hash, str(match_data["link"]))
+
+    # Show verification panel
+    console.print(
+        render_verification_panel(
+            audit_result["valid"],
+            audit_result["on_chain_data_hash"],
+            audit_result["local_recomputed_hash"],
+        )
+    )
 
     if audit_result["valid"]:
         console.print(
@@ -147,8 +183,17 @@ def run_pipeline(input_image_path: str):
     tampered_url = str(match_data["link"]) + "_tampered"
     tamper_audit = bc_manager.verify_on_chain(face_hash, tampered_url)
 
+    # Show tamper panel
+    console.print(
+        render_verification_panel(
+            tamper_audit["valid"],
+            tamper_audit["on_chain_data_hash"],
+            tamper_audit["local_recomputed_hash"],
+        )
+    )
+
     if not tamper_audit["valid"]:
-        console.print("[bold red]+ TAMPER DETECTED BY DESIGN![/bold red]")
+        console.print("[bold red]✔ TAMPER DETECTED BY DESIGN![/bold red]")
         console.print(f"Expected Fingerprint : {tamper_audit['local_recomputed_hash']}")
         console.print(f"On-Chain Fingerprint : {tamper_audit['on_chain_data_hash']}")
         console.print(
