@@ -2,6 +2,7 @@
 
 import os
 import sys
+import requests
 
 from rich.console import Console
 
@@ -60,6 +61,31 @@ def check_serpapi():
     console.print("[green]✔[/green] SerpApi key set")
 
 
+def check_internet():
+    """Lightweight network check that does not spend SerpApi credits."""
+    try:
+        resp = requests.get("https://serpapi.com/", timeout=8)
+        if resp.status_code >= 500:
+            raise RuntimeError(f"serpapi.com HTTP {resp.status_code}")
+        console.print("[green]✔[/green] Internet reachable")
+    except Exception as exc:
+        raise RuntimeError(f"Internet/SerpApi host not reachable: {exc}") from exc
+
+
+def check_image_hosts():
+    """Verify at least one configured image host endpoint is reachable."""
+    hosts = ["https://catbox.moe/", "https://tmpfiles.org/"]
+    for url in hosts:
+        try:
+            resp = requests.get(url, timeout=8)
+            if resp.status_code < 500:
+                console.print(f"[green]✔[/green] Image host reachable: {url}")
+                return
+        except Exception:
+            continue
+    raise RuntimeError("No image host reachable (catbox.moe/tmpfiles.org). Check internet/firewall.")
+
+
 def run_preflight(input_image_path: str, require_serpapi: bool = True):
     """Run all pre-flight checks."""
     console.print("[bold cyan]Pre-flight checks[/bold cyan]")
@@ -69,4 +95,6 @@ def run_preflight(input_image_path: str, require_serpapi: bool = True):
     check_contract_deployed(w3)
     if require_serpapi:
         check_serpapi()
+        check_internet()
+        check_image_hosts()
     console.print("[green]✔ All checks passed[/green]\n")

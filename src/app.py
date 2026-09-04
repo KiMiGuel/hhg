@@ -390,6 +390,52 @@ def smoke_screen():
     pause()
 
 
+def live_screen():
+    """One-click live run from the dashboard: real SerpApi + blockchain."""
+    from scripts.live_run import main as live_main
+
+    console.print(
+        Panel(
+            "[bold cyan]One-click LIVE run[/bold cyan]\n"
+            "This uses the real internet + SerpApi Google Lens + blockchain path.\n"
+            "It is NOT demo mode and may consume one SerpApi search credit.",
+            border_style="cyan",
+        )
+    )
+    mode = select_option(
+        "Choose input source",
+        ["Use data/sample_face.jpg", "Capture from webcam", "Cancel"],
+        default=0,
+        allow_esc=True,
+    )
+    if mode is None or mode == 2:
+        return
+
+    argv_backup = sys.argv[:]
+    try:
+        sys.argv = ["live_run.py"]
+        chain_mode = select_option(
+            "Blockchain mode",
+            ["Reuse current chain/contract", "Fresh local Anvil + redeploy (best for recording)"],
+            default=1,
+            allow_esc=True,
+        )
+        if chain_mode == 1:
+            sys.argv.append("--fresh-chain")
+        if mode == 0:
+            sys.argv += ["--image", "data/sample_face.jpg"]
+        else:
+            sys.argv.append("--camera")
+        code = live_main()
+        if code == 0:
+            console.print("[bold green]LIVE run completed successfully.[/bold green]")
+        else:
+            console.print(f"[bold red]LIVE run failed with exit code {code}.[/bold red]")
+    finally:
+        sys.argv = argv_backup
+    pause()
+
+
 def setup_screen():
     from src.setup_wizard import run_setup
 
@@ -401,6 +447,7 @@ def setup_screen():
 
 MENU = [
     "Capture Photo   (webcam face capture)",
+    "LIVE One-Click   (camera/image → SerpApi → blockchain)",
     "Run Pipeline    (live SerpApi Google Lens search)",
     "Run Pipeline    (demo mode — offline, no credits)",
     "Records         (browse the on-chain registry)",
@@ -415,15 +462,16 @@ MENU = [
 
 ACTIONS = {
     0: capture_screen,
-    1: lambda: run_pipeline_wizard(demo=False),
-    2: lambda: run_pipeline_wizard(demo=True),
-    3: records_screen,
-    4: verify_screen,
-    5: export_screen,
-    6: status_screen,
-    7: setup_screen,
-    8: smoke_screen,
-    9: help_screen,
+    1: live_screen,
+    2: lambda: run_pipeline_wizard(demo=False),
+    3: lambda: run_pipeline_wizard(demo=True),
+    4: records_screen,
+    5: verify_screen,
+    6: export_screen,
+    7: status_screen,
+    8: setup_screen,
+    9: smoke_screen,
+    10: help_screen,
 }
 
 

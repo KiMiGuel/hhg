@@ -6,10 +6,7 @@ Press 'f' to toggle fullscreen preview.
 """
 
 import os
-import time
-
 import cv2
-import numpy as np
 
 from rich.console import Console
 
@@ -40,7 +37,7 @@ def capture_from_camera(output_path: str = DEFAULT_OUTPUT, camera_index: int = 0
 
     Returns the saved image path on success, None if cancelled or failed.
     """
-    from src.face_engine import FaceEngine, YUNET_MODEL_PATH
+    from src.face_engine import FaceEngine
 
     engine = FaceEngine()
     # Reuse the YuNet detector from FaceEngine
@@ -102,18 +99,9 @@ def capture_from_camera(output_path: str = DEFAULT_OUTPUT, camera_index: int = 0
     cv2.destroyAllWindows()
 
     if captured and frame_to_save is not None:
-        # If faces detected, crop to the largest face with padding and save
-        if faces:
-            faces.sort(key=lambda f: f[2] * f[3], reverse=True)
-            x, y, w, h, _ = faces[0]
-            pad_x = int(w * 0.15)
-            pad_y = int(h * 0.15)
-            x1 = max(0, x - pad_x)
-            y1 = max(0, y - pad_y)
-            x2 = min(frame_to_save.shape[1], x + w + pad_x)
-            y2 = min(frame_to_save.shape[0], y + h + pad_y)
-            frame_to_save = frame_to_save[y1:y2, x1:x2]
-
+        # Save the full frame. Stage 1 owns final face selection, quality checks,
+        # SFace alignment, and crop generation. Saving the full frame preserves
+        # hair/shoulders/background context for Google Lens accuracy.
         cv2.imwrite(output_path, frame_to_save)
         console.print(f"[green]✔ Captured and saved to: [bold]{output_path}[/bold][/green]")
         return output_path

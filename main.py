@@ -2,6 +2,7 @@
 
 Launch with no arguments for the full-app interactive dashboard (arrow-key
 menus, live system status), or use the direct subcommands:
+    python main.py live [--image IMG|--camera]        one-click REAL live run
     python main.py run <image> [--demo] [--face N]   full 4-stage pipeline
     python main.py verify <hash> <url>               audit by face hash
     python main.py verify-image <image> <url>        re-derive hash, then audit
@@ -38,6 +39,38 @@ def cmd_run(args):
     from pipeline import run_pipeline
 
     run_pipeline(args.image, demo_mode=args.demo, face_index=args.face)
+
+
+def cmd_live(args):
+    from scripts.live_run import main as live_main
+
+    argv_backup = sys.argv[:]
+    try:
+        live_args = ["live_run.py"]
+        if args.image:
+            live_args.extend(["--image", args.image])
+        if args.camera:
+            live_args.append("--camera")
+        if args.camera_index is not None:
+            live_args.extend(["--camera-index", str(args.camera_index)])
+        if args.output:
+            live_args.extend(["--output", args.output])
+        if args.face is not None:
+            live_args.extend(["--face", str(args.face)])
+        if args.fresh_chain:
+            live_args.append("--fresh-chain")
+        if args.visible_node:
+            live_args.append("--visible-node")
+        if args.no_auto_node:
+            live_args.append("--no-auto-node")
+        if args.force_deploy:
+            live_args.append("--force-deploy")
+        sys.argv = live_args
+        code = live_main()
+        if code:
+            sys.exit(code)
+    finally:
+        sys.argv = argv_backup
 
 
 def cmd_verify(args):
@@ -139,6 +172,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
+            "  python main.py live --image data/sample_face.jpg\n"
+            "  python main.py live --camera\n"
             "  python main.py run data/sample_face.jpg --demo\n"
             "  python main.py run data/sample_face.jpg --face 1\n"
             "  python main.py records\n"
@@ -146,6 +181,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = p.add_subparsers(dest="command", required=True)
+
+    live_p = sub.add_parser("live", help="one-click REAL live run (camera/image + SerpApi + blockchain)")
+    live_p.add_argument("--image", help="path to input face image")
+    live_p.add_argument("--camera", action="store_true", help="capture from webcam before running")
+    live_p.add_argument("--camera-index", type=int, default=0, help="OpenCV camera index")
+    live_p.add_argument("--output", default="data/captured_face.jpg", help="camera capture output path")
+    live_p.add_argument("--face", type=int, default=None, help="face index for multi-face images")
+    live_p.add_argument("--fresh-chain", action="store_true", help="restart local Anvil and redeploy before running")
+    live_p.add_argument("--visible-node", action="store_true", help="start Anvil visibly if auto-starting")
+    live_p.add_argument("--no-auto-node", action="store_true", help="do not auto-start local Anvil")
+    live_p.add_argument("--force-deploy", action="store_true", help="redeploy FaceRegistry even if current address is valid")
+    live_p.set_defaults(func=cmd_live)
 
     run_p = sub.add_parser("run", help="run the full 4-stage pipeline on an image")
     run_p.add_argument("image", help="path to the input face image")

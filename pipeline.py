@@ -177,6 +177,15 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         with console.status("[bold green]Executing genuine Google Lens reverse search via SerpApi..."):
             match_data = search_engine.search_face_on_web(public_image_url)
 
+        if search_engine.last_diagnostics:
+            diag = search_engine.last_diagnostics
+            cache_note = "cache" if diag.cached else "live SerpApi"
+            console.print(
+                f"[green]✔[/green] Google Lens returned [bold]{diag.visual_match_count}[/bold] visual matches "
+                f"via {cache_note}; selected rank [bold]{diag.selected_rank}[/bold] "
+                f"({diag.selected_reason}) in {diag.elapsed_seconds:.2f}s"
+            )
+
     # Show side-by-side comparison: face ASCII art vs discovered post
     console.print(render_comparison_panel(crop_path, match_data))
 

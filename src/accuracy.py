@@ -47,11 +47,11 @@ def assess_face_quality(image: np.ndarray, bbox: tuple) -> dict:
 
 def show_quality_report(quality: dict):
     """Display a quality report to the console."""
-    status = "[green]✔ PASS[/green]" if quality["pass"] else "[yellow]⚠ MARGINAL[/yellow]"
+    status = "[green]PASS[/green]" if quality["pass"] else "[yellow]MARGINAL[/yellow]"
     console.print(f"\n  [dim]Face quality: {status}[/dim]")
-    console.print(f"    Blur score: {quality['blur_score']} {'[green]✔[/green]' if quality['blur_pass'] else '[yellow]⚠[/yellow]'}")
-    console.print(f"    Brightness: {quality['brightness']} {'[green]✔[/green]' if quality['brightness_pass'] else '[yellow]⚠[/yellow]'}")
-    console.print(f"    Contrast:   {quality['contrast']} {'[green]✔[/green]' if quality['contrast_pass'] else '[yellow]⚠[/yellow]'}")
+    console.print(f"    Blur score: {quality['blur_score']} {'[green]OK[/green]' if quality['blur_pass'] else '[yellow]LOW[/yellow]'}")
+    console.print(f"    Brightness: {quality['brightness']} {'[green]OK[/green]' if quality['brightness_pass'] else '[yellow]LOW[/yellow]'}")
+    console.print(f"    Contrast:   {quality['contrast']} {'[green]OK[/green]' if quality['contrast_pass'] else '[yellow]LOW[/yellow]'}")
 
 
 def normalize_embedding(raw_embedding) -> np.ndarray:
