@@ -73,86 +73,82 @@ hhg/
 ├── src/
 │   ├── config.py                # .env configuration loader
 │   ├── face_engine.py           # YuNet detection, SFace encoding, cosine similarity
-│   ├── web_search.py            # Image hosting + Google Lens search
+│   ├── web_search.py            # Image hosting + Google Lens search (+ cache)
 │   ├── blockchain.py            # Web3 anchoring, auditing, tamper check
+│   ├── accuracy.py              # Face quality checks, confidence, normalization
+│   ├── preflight.py             # Pre-flight validation of all prerequisites
+│   ├── registry.py              # On-chain record explorer + CSV/JSON export
+│   ├── setup_wizard.py          # Interactive one-command setup
+│   ├── demo_data.py             # Pre-recorded result for --demo mode
 │   └── report.py                # JSON + Markdown audit report generation
 ├── tests/
 │   ├── test_face_engine.py      # Hash determinism, embedding, cosine similarity
 │   ├── test_blockchain.py       # Fingerprint computation, tamper logic
 │   └── test_report.py           # Report artifact generation
 ├── temp/                        # Ephemeral face crops (gitignored)
-├── pipeline.py                  # Master end-to-end CLI
-├── verify.py                    # Standalone on-chain audit CLI
+├── main.py                      # Unified CLI (run/verify/records/export/setup/smoke)
+├── pipeline.py                  # Master end-to-end CLI (legacy entry point)
+├── verify.py                    # Standalone on-chain audit CLI (legacy entry point)
 ├── requirements.txt
 └── .env.example
 ```
 
 ## Setup & Execution Runbook
 
-### 1. Install Foundry (Anvil)
-
-Download from <https://getfoundry.sh> (or via `foundryup`). Verify:
-
-```powershell
-anvil --version
-```
-
-### 2. Python environment
+### 1. Quick path: interactive setup wizard (recommended)
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
+python main.py setup
 ```
 
-### 3. Configure environment
+The wizard checks Python/deps, downloads the face models, verifies (or starts)
+Anvil, deploys the contract, and writes `.env` — one command instead of six
+manual steps.
 
-```powershell
-Copy-Item .env.example .env
-# Edit .env:
-#   SERPAPI_KEY      -> free key from https://serpapi.com (no credit card)
-#   RPC_URL          -> http://127.0.0.1:8545 (local Anvil)
-#   PRIVATE_KEY      -> Anvil default pre-funded key (test only)
-#   CONTRACT_ADDRESS -> filled after deployment
-```
+### Manual setup (alternative)
 
-### 4. Start the local blockchain
+<details>
+<summary>Show manual steps</summary>
 
-In a separate terminal (keep it visible for the demo recording):
+1. **Install Foundry (Anvil)** — <https://getfoundry.sh>, verify with `anvil --version`.
+2. **Configure environment** — copy `.env.example` to `.env` (SerpApi key free at
+   serpapi.com; no credit card).
+3. **Start the local blockchain** — `.\scripts\run_local_node.ps1`.
+4. **Deploy the contract** — `python scripts/deploy.py`, then copy the printed
+   address into `CONTRACT_ADDRESS` in `.env`.
 
-```powershell
-.\scripts\run_local_node.ps1
-```
+</details>
 
-### 5. Compile & deploy the contract
-
-```powershell
-python scripts/deploy.py
-# Copy the printed contract address into CONTRACT_ADDRESS in .env
-```
-
-### 6. Add an input image
+### 2. Add an input image
 
 Place a face photo at `data/sample_face.jpg`. **Use an image you have the
 right to use** — your own photo or a consenting person's public photo —
 because Stage 2 performs a genuine reverse search of the face.
 
-### 7. Run the pipeline
+### 3. Run the pipeline
 
 ```powershell
-python pipeline.py data/sample_face.jpg
+python main.py run data/sample_face.jpg            # live SerpApi Google Lens search
+python main.py run data/sample_face.jpg --demo     # offline: pre-recorded search result
+python main.py run group_photo.jpg --face 1        # pick face #1 in multi-face images
 ```
 
-### 8. Standalone audit
+### 4. Audit & explore the on-chain registry
 
 ```powershell
-python verify.py <face_hash_from_output> <discovered_url_from_output>
+python main.py records                                   # list every anchored record
+python main.py verify <face_hash> <post_url>             # audit by hash
+python main.py verify-image data/sample_face.jpg <url>   # re-derive hash from image, then audit
+python main.py export --format json                      # export registry for auditors
 ```
 
 ### Quick validation without SerpApi credits
 
 ```powershell
-python scripts/smoke_test.py
+python main.py smoke
 ```
 
 ## Testing & CI

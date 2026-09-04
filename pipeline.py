@@ -2,8 +2,17 @@ import sys
 import time
 from datetime import datetime, timezone
 
+# Force UTF-8 output so ✔/✖ render on Windows consoles with legacy codepages
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.table import Table
 
 from src import face_engine as face_engine_mod
@@ -28,7 +37,33 @@ from src.web_search import WebSearchEngine
 console = Console()
 
 
-def run_pipeline(input_image_path: str, demo_mode: bool = False):
+def pick_face_interactively(face_engine: FaceEngine, input_image_path: str, face_arg: int | None) -> int:
+    """Show all detected faces and let the user pick one when several are found.
+
+    Returns the selected face index (0 = largest face)."""
+    faces = face_engine.detect_all_faces(input_image_path)
+    if len(faces) <= 1 or face_arg is not None:
+        return face_arg or 0
+
+    console.print(
+        f"[bold yellow]! {len(faces)} faces detected — select which one to scan:[/bold yellow]"
+    )
+    table = Table(title="Detected Faces", border_style="yellow")
+    table.add_column("#", justify="right", style="cyan")
+    table.add_column("BBox (x, y, w, h)", style="white")
+    table.add_column("Confidence", style="green", justify="right")
+    for i, f in enumerate(faces):
+        marker = " [bold]←[/bold]" if i == 0 else ""
+        table.add_row(str(i), str(f["bbox"]), f"{f['confidence']:.2f}{marker}")
+    console.print(table)
+    while True:
+        raw = Prompt.ask("Face number", default="0")
+        if raw.isdigit() and 0 <= int(raw) < len(faces):
+            return int(raw)
+        console.print("[red]Invalid choice — try again.[/red]")
+
+
+def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int | None = None):
     # ---- Visual header + stage progress ----
     console.print(render_pipeline_header())
     if demo_mode:
@@ -68,8 +103,11 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False):
     t_start = time.perf_counter()
     console.print("\n[bold yellow]>> [STAGE 1] Face Detection & Biometric Encoding[/bold yellow]")
     face_engine = FaceEngine()
+    selected_face = pick_face_interactively(face_engine, input_image_path, face_index)
     with console.status("[bold green]Detecting facial bounds and calculating embedding vector..."):
-        crop_path, face_hash, bbox, confidence, quality = face_engine.process_image(input_image_path)
+        crop_path, face_hash, bbox, confidence, quality = face_engine.process_image(
+            input_image_path, face_index=selected_face
+        )
 
     # Show OpenCV windows with bounding box + landmarks (auto-close after 2s, skip in demo mode)
     if not demo_mode:
@@ -287,18 +325,27 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False):
 
 
 if __name__ == "__main__":
-    # Parse --demo flag and image path from arguments
+    # Parse --demo / --face N flags and image path from arguments
     args = sys.argv[1:]
     demo_mode = "--demo" in args or "--demo-mode" in args
-    if demo_mode:
-        args = [a for a in args if a not in ("--demo", "--demo-mode")]
+    face_index = None
+    if "--face" in args:
+        idx = args.index("--face")
+        if idx + 1 < len(args) and args[idx + 1].isdigit():
+            face_index = int(args[idx + 1])
+            del args[idx : idx + 2]
+        else:
+            console.print("[bold red]--face requires a number, e.g. --face 0[/bold red]")
+            sys.exit(1)
+    args = [a for a in args if a not in ("--demo", "--demo-mode")]
 
     if len(args) < 1:
         console.print(
-            "[bold red]Usage: python pipeline.py <path_to_input_image> [--demo][/bold red]\n\n"
+            "[bold red]Usage: python pipeline.py <path_to_input_image> [--demo] [--face N][/bold red]\n\n"
             "Options:\n"
             "  --demo      Use pre-recorded search result (no SerpApi, no internet)\n"
-            "              Ideal for screen recordings and offline demos."
+            "  --face N    Scan face #N in multi-face images (skips interactive picker)\n\n"
+            "Tip: the unified CLI is 'python main.py' — try 'python main.py --help'."
         )
         sys.exit(1)
-    run_pipeline(args[0], demo_mode=demo_mode)
+    run_pipeline(args[0], demo_mode=demo_mode, face_index=face_index)

@@ -15,6 +15,9 @@ reports/
 # SerpApi search result cache
 cache/
 
+# Registry exports
+exports/
+
 # Testing
 .pytest_cache/
 htmlcov/

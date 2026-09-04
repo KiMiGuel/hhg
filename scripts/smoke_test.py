@@ -30,8 +30,9 @@ def main():
         from src.face_engine import FaceEngine
 
         engine = FaceEngine()
-        crop_path, face_hash, bbox = engine.process_image(image_path)
-        print(f"    OK: bbox={bbox}, crop={crop_path}")
+        crop_path, face_hash, bbox, confidence, quality = engine.process_image(image_path)
+        print(f"    OK: bbox={bbox}, confidence={confidence:.2f}, crop={crop_path}")
+        print(f"    OK: quality pass={quality['pass']}")
         print(f"    OK: biometric hash = {face_hash}")
     else:
         print("[1] No face image found -- skipping live face stage.")

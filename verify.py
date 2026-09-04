@@ -21,9 +21,10 @@ def verify_entry(face_hash: str, expected_url: str):
     except ContractLogicError:
         console.print(
             Panel(
-                "[bold yellow]! NO RECORD FOUND for this face hash on the configured contract.\n"
+                "[bold yellow]✖ NO RECORD FOUND for this face hash on the configured contract.\n"
                 f"Contract : {CONTRACT_ADDRESS}\n"
-                "Run the pipeline first, or check CONTRACT_ADDRESS in .env.[/bold yellow]",
+                "Run the pipeline first, or check CONTRACT_ADDRESS in .env.\n"
+                "Tip: 'python main.py records' lists every anchored record.[/bold yellow]",
                 border_style="yellow",
             )
         )
@@ -32,7 +33,7 @@ def verify_entry(face_hash: str, expected_url: str):
     if result["valid"]:
         console.print(
             Panel(
-                f"[bold green]+ DATA RECORD AUTHENTIC & VERIFIED\n"
+                f"[bold green]✔ DATA RECORD AUTHENTIC & VERIFIED\n"
                 f"Face Hash      : {result['on_chain_face_hash']}\n"
                 f"Post URL       : {result['on_chain_url']}\n"
                 f"Fingerprint    : {result['on_chain_data_hash']}\n"
@@ -44,7 +45,7 @@ def verify_entry(face_hash: str, expected_url: str):
     else:
         console.print(
             Panel(
-                f"[bold red]x TAMPER DETECTED / AUDIT FAILED\n"
+                f"[bold red]✖ TAMPER DETECTED / AUDIT FAILED\n"
                 f"On-Chain Hash : {result['on_chain_data_hash']}\n"
                 f"Computed Hash : {result['local_recomputed_hash']}[/bold red]",
                 border_style="red",
