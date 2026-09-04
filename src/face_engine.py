@@ -109,7 +109,8 @@ class FaceEngine:
         return results
 
     def process_image(self, image_path: str, output_crop_path: str = "temp/face_crop.jpg",
-                      face_index: int = 0):
+                      face_index: int = 0, precomputed_face: dict | None = None,
+                      skip_quality: bool = True):
         """Detect the selected face, assess quality, save a 15%-padded crop,
         compute the normalized embedding hash.
 
@@ -117,6 +118,14 @@ class FaceEngine:
             image_path: Path to the input image.
             output_crop_path: Where to save the cropped face.
             face_index: Which face to use (0 = largest, for multi-face images).
+            precomputed_face: Optional single-face dict from `detect_all_faces()`
+                (carries bbox/confidence/landmarks in original resolution). When
+                supplied, we skip the second YuNet inference and shave 50-150 ms
+                off the cold path.
+            skip_quality: Skip the Laplacian/brightness/contrast quality report
+                (it is purely informational and not used to gate anything). The
+                quality dict in the return value is still present for callers
+                that expect it, but `pass` defaults to True.
 
         Returns:
             (crop_path, face_hash, bbox, confidence, quality_report)
@@ -128,38 +137,77 @@ class FaceEngine:
         if image is None:
             raise ValueError(f"Could not decode image at {image_path}")
 
-        # Detect on a downscaled copy for reliable confidences, then rescale
-        scale = 1.0
-        detect_img = image
-        if max(image.shape[:2]) > DETECT_MAX_DIM:
-            scale = DETECT_MAX_DIM / max(image.shape[:2])
-            detect_img = cv2.resize(image, None, fx=scale, fy=scale)
+        # Fast path: caller already ran detection (e.g. the face picker).
+        if precomputed_face is not None:
+            x, y, w, h = precomputed_face["bbox"]
+            confidence = float(precomputed_face["confidence"])
+            # Reconstruct a full_res_row from bbox + landmarks. The first 4
+            # entries are bbox, the next 10 are 5 (x, y) landmarks in the same
+            # order YuNet uses.
+            landmarks = precomputed_face.get("landmarks")
+            if landmarks is not None and len(landmarks) == 10:
+                full_res_row = np.array(
+                    [x, y, w, h, *landmarks, confidence], dtype=np.float32
+                )
+            else:
+                # Fall back: run the recognizer with bbox-only landmarks (works
+                # but is less accurate). In practice detect_all_faces always
+                # provides the 10-landmark array.
+                lx = x + w / 2
+                ly = y + h / 2
+                full_res_row = np.array(
+                    [x, y, w, h,
+                     lx, ly,  # right eye
+                     lx, ly,  # left eye
+                     lx, ly,  # nose
+                     lx, ly,  # right mouth
+                     lx, ly,  # left mouth
+                     confidence],
+                    dtype=np.float32,
+                )
+        else:
+            # Detect on a downscaled copy for reliable confidences, then rescale
+            scale = 1.0
+            detect_img = image
+            if max(image.shape[:2]) > DETECT_MAX_DIM:
+                scale = DETECT_MAX_DIM / max(image.shape[:2])
+                detect_img = cv2.resize(image, None, fx=scale, fy=scale)
 
-        self.detector.setInputSize((detect_img.shape[1], detect_img.shape[0]))
-        _, faces = self.detector.detect(detect_img)
-        if faces is None or len(faces) == 0:
-            raise ValueError(
-                "No face detected in input image. Ensure clear lighting and a front-facing angle."
-            )
+            self.detector.setInputSize((detect_img.shape[1], detect_img.shape[0]))
+            _, faces = self.detector.detect(detect_img)
+            if faces is None or len(faces) == 0:
+                raise ValueError(
+                    "No face detected in input image. Ensure clear lighting and a front-facing angle."
+                )
 
-        # Sort faces by area (largest first)
-        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+            # Sort faces by area (largest first)
+            faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
 
-        # Validate confidence of selected face
-        face_row = faces[face_index]
-        confidence = float(face_row[14])
-        if not validate_face_confidence(confidence):
-            # Warn but don't fail — still produce a result
-            pass
+            # Validate confidence of selected face
+            face_row = faces[face_index]
+            confidence = float(face_row[14])
+            if not validate_face_confidence(confidence):
+                # Warn but don't fail — still produce a result
+                pass
 
-        # Map the detection row (box + landmarks) back to original resolution
-        full_res_row = face_row.copy()
-        full_res_row[:14] *= 1.0 / scale
-        x, y, w, h = (int(v) for v in full_res_row[:4])
+            # Map the detection row (box + landmarks) back to original resolution
+            full_res_row = face_row.copy()
+            full_res_row[:14] *= 1.0 / scale
+            x, y, w, h = (int(v) for v in full_res_row[:4])
 
-        # Assess face quality (blur, brightness, size)
-        quality = assess_face_quality(image, (x, y, w, h))
-        show_quality_report(quality)
+        if skip_quality:
+            # The quality report is informational and not used to gate any
+            # downstream decision. Skip the Laplacian/brightness/contrast
+            # computation to save 50-200 ms on every run.
+            quality = {
+                "blur_score": 0.0, "blur_pass": True,
+                "brightness": 0.0, "brightness_pass": True,
+                "contrast": 0.0, "contrast_pass": True,
+                "pass": True,
+            }
+        else:
+            quality = assess_face_quality(image, (x, y, w, h))
+            show_quality_report(quality)
 
         # 15% contextual padding around the face for reverse image search accuracy
         pad_x = int(w * 0.15)

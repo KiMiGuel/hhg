@@ -164,18 +164,37 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         public_image_url = "https://files.catbox.moe/demo_face.jpg (DEMO: skipped)"
         console.print(f"[green]✔[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
         match_data = get_demo_search_result()
+        lens_result = None  # demo mode has no real Lens result
         console.print(
             f"[green]✔[/green] Using pre-recorded search result: "
             f"[bold]{match_data['title']}[/bold]"
         )
     else:
+        # ---- compute a stable image-identity hash so the SerpApi cache is
+        # keyed on the source image bytes, not on the ephemeral catbox URL.
+        import hashlib as _hashlib
+        try:
+            with open(crop_path, "rb") as _f:
+                _image_bytes = _f.read()
+            image_sha256 = _hashlib.sha256(_image_bytes).hexdigest()
+        except OSError:
+            image_sha256 = ""
+
         search_engine = WebSearchEngine(SERPAPI_KEY)
-        with console.status("[bold green]Uploading face crop to ephemeral image host..."):
-            public_image_url = search_engine.upload_image_to_temp_host(crop_path)
+        # upload_and_search is cache-aware: if (face_hash, image_sha256) is in
+        # the on-disk JSON cache, the upload and the SerpApi call are skipped
+        # entirely and we return the cached LensResult in ~5 ms.
+        with console.status("[bold green]Uploading face crop + querying Google Lens..."):
+            public_image_url, lens_result, upload_ms, lens_ms, host = (
+                search_engine.upload_and_search(
+                    _image_bytes if _image_bytes else b"",
+                    face_hash=face_hash,
+                    policy="social",
+                )
+            )
         console.print(f"[green]✔[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
 
-        with console.status("[bold green]Executing genuine Google Lens reverse search via SerpApi..."):
-            match_data = search_engine.search_face_on_web(public_image_url)
+        match_data = lens_result  # backward-compat: dict-like access for Stage 3
 
         if search_engine.last_diagnostics:
             diag = search_engine.last_diagnostics
@@ -185,6 +204,12 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
                 f"via {cache_note}; selected rank [bold]{diag.selected_rank}[/bold] "
                 f"({diag.selected_reason}) in {diag.elapsed_seconds:.2f}s"
             )
+        # Per-stage telemetry (one line, very low noise)
+        cache_state = "HIT" if lens_result.cache_hit else "MISS"
+        console.print(
+            f"[dim]  STAGE2: upload={upload_ms:.0f}ms lens={lens_ms:.0f}ms "
+            f"serpapi_total={lens_result.serpapi_total_time_s}s host={host} cache={cache_state}[/dim]"
+        )
 
     # Show side-by-side comparison: face ASCII art vs discovered post
     console.print(render_comparison_panel(crop_path, match_data))
@@ -198,14 +223,22 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
     console.print(table)
     elapsed2 = time.perf_counter() - t_stage2
     console.print(f"[dim]  Stage 2 completed in {elapsed2:.2f}s[/dim]")
-    report["stage2"].update(
-        {
-            "image_host_url": public_image_url,
-            "title": str(match_data["title"]),
-            "platform": str(match_data["platform"]),
-            "post_url": str(match_data["link"]),
-        }
-    )
+
+    # The report's stage2 block is now the full LensResult (selected +
+    # visual_matches + knowledge_graph + per-stage telemetry) so the audit
+    # trail is auditable end-to-end. Falls back to the 4-field shape if the
+    # older dict-style match_data is used (demo mode).
+    if hasattr(lens_result, "to_dict"):
+        report["stage2"] = lens_result.to_dict()
+    else:
+        report["stage2"].update(
+            {
+                "image_host_url": public_image_url,
+                "title": str(match_data["title"]),
+                "platform": str(match_data["platform"]),
+                "post_url": str(match_data["link"]),
+            }
+        )
 
     # ---------------------------------------------------------------- Stage 3
     t_stage3 = time.perf_counter()
