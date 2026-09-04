@@ -48,6 +48,8 @@ set "INPUT_FLAG=--image"
 goto :ask_chain_mode
 
 :pick_webcam
+REM For --camera the path is the OUTPUT snapshot location; we pass it
+REM to Python as --output, NOT as a positional.
 set "INPUT_TARGET=data\captured_face.jpg"
 set "INPUT_FLAG=--camera"
 goto :ask_chain_mode
@@ -153,7 +155,11 @@ echo.
 REM ---- Run, capture log to a unique path ----
 set "LOG=%TEMP%\hhg_live_%RANDOM%.log"
 color 0A
-venv\Scripts\python.exe main.py live %INPUT_FLAG% "%INPUT_TARGET%" %CHAIN_ARGS% > "%LOG%" 2>&1
+if "%INPUT_FLAG%"=="--camera" (
+    venv\Scripts\python.exe main.py live --camera --output "%INPUT_TARGET%" %CHAIN_ARGS% > "%LOG%" 2>&1
+) else (
+    venv\Scripts\python.exe main.py live --image "%INPUT_TARGET%" %CHAIN_ARGS% > "%LOG%" 2>&1
+)
 set "EXITCODE=%ERRORLEVEL%"
 
 echo.
