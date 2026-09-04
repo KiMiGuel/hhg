@@ -79,6 +79,8 @@ hhg/
 │   ├── preflight.py             # Pre-flight validation of all prerequisites
 │   ├── registry.py              # On-chain record explorer + CSV/JSON export
 │   ├── setup_wizard.py          # Interactive one-command setup
+│   ├── menu.py                  # Arrow-key menu component (classic-cmd compatible)
+│   ├── app.py                   # Full-app terminal dashboard (banner/status/menu)
 │   ├── demo_data.py             # Pre-recorded result for --demo mode
 │   └── report.py                # JSON + Markdown audit report generation
 ├── tests/
@@ -131,10 +133,18 @@ because Stage 2 performs a genuine reverse search of the face.
 ### 3. Run the pipeline
 
 ```powershell
-python main.py run data/sample_face.jpg            # live SerpApi Google Lens search
-python main.py run data/sample_face.jpg --demo     # offline: pre-recorded search result
-python main.py run group_photo.jpg --face 1        # pick face #1 in multi-face images
+python main.py                                    # full-app dashboard (arrow-key menus)
+python main.py run data/sample_face.jpg           # direct: live SerpApi Google Lens search
+python main.py run data/sample_face.jpg --demo    # direct: offline, pre-recorded result
+python main.py run group_photo.jpg --face 1       # direct: pick face #1 in multi-face images
 ```
+
+**The dashboard** (default when you run `python main.py` with no arguments) is a
+full-app terminal experience that works in the classic Windows console:
+an ASCII banner, a live system-status header (node, contract, record count,
+models, API key), and an arrow-key main menu (↑/↓ + Enter, number shortcuts,
+Esc to exit) covering every operation: run pipeline, browse on-chain records,
+verify, export, status, setup, smoke test, and help.
 
 ### 4. Audit & explore the on-chain registry
 

@@ -40,10 +40,31 @@ console = Console()
 def pick_face_interactively(face_engine: FaceEngine, input_image_path: str, face_arg: int | None) -> int:
     """Show all detected faces and let the user pick one when several are found.
 
+    Uses the arrow-key menu in interactive terminals (works in classic cmd);
+    falls back to a numbered text prompt otherwise.
+
     Returns the selected face index (0 = largest face)."""
     faces = face_engine.detect_all_faces(input_image_path)
     if len(faces) <= 1 or face_arg is not None:
         return face_arg or 0
+
+    # Arrow-key menu when we have a real terminal (feels like a GUI)
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        try:
+            from src.menu import select_option
+
+            labels = [
+                f"Face {i}:  bbox={f['bbox']}  confidence={f['confidence']:.2f}"
+                for i, f in enumerate(faces)
+            ]
+            return select_option(
+                f"{len(faces)} faces detected — select one",
+                labels,
+                default=0,
+                allow_esc=True,
+            ) or 0
+        except Exception:
+            pass  # fall through to numbered prompt
 
     console.print(
         f"[bold yellow]! {len(faces)} faces detected — select which one to scan:[/bold yellow]"

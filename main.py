@@ -1,6 +1,7 @@
 """Unified CLI for the Face Identification & Blockchain Verification pipeline.
 
-One entry point for every operation:
+Launch with no arguments for the full-app interactive dashboard (arrow-key
+menus, live system status), or use the direct subcommands:
     python main.py run <image> [--demo] [--face N]   full 4-stage pipeline
     python main.py verify <hash> <url>               audit by face hash
     python main.py verify-image <image> <url>        re-derive hash, then audit
@@ -8,6 +9,7 @@ One entry point for every operation:
     python main.py export [--format csv|json]        export registry for auditors
     python main.py setup                             interactive setup wizard
     python main.py smoke                             end-to-end smoke test
+    python main.py ui                                force-launch the dashboard
 """
 
 import argparse
@@ -178,10 +180,29 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_p = sub.add_parser("smoke", help="run the end-to-end smoke test")
     smoke_p.set_defaults(func=cmd_smoke)
 
+    ui_p = sub.add_parser(
+        "ui", help="launch the interactive dashboard (also the default with no arguments)"
+    )
+    ui_p.set_defaults(func=cmd_ui)
+
     return p
 
 
+def cmd_ui(_args):
+    from src.app import run_dashboard
+
+    run_dashboard()
+
+
 def main():
+    # No arguments: interactive users get the dashboard, scripts get help.
+    if len(sys.argv) == 1:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            cmd_ui(None)
+            return
+        build_parser().print_help()
+        sys.exit(1)
+
     parser = build_parser()
     args = parser.parse_args()
     console.print(BANNER)
