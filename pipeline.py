@@ -26,7 +26,9 @@ from src.visualizer import (
     render_blockchain_panel,
     render_comparison_panel,
     render_face_panel,
+    render_final_summary,
     render_hash_panel,
+    render_identity_block,
     render_pipeline_header,
     render_stage_progress,
     render_verification_panel,
@@ -207,11 +209,13 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         # Per-stage telemetry (one line, very low noise)
         cache_state = "HIT" if lens_result.cache_hit else "MISS"
         console.print(
-            f"[dim]  STAGE2: upload={upload_ms:.0f}ms lens={lens_ms:.0f}ms "
-            f"serpapi_total={lens_result.serpapi_total_time_s}s host={host} cache={cache_state}[/dim]"
+            f"[dim]  STAGE2: upload={upload_ms:.0f}ms lens={lens_ms:.0f}ms "            f"serpapi_total={lens_result.serpapi_total_time_s}s host={host} cache={cache_state}[/dim]"
         )
 
-    # Show side-by-side comparison: face ASCII art vs discovered post
+        # Surface the identity block immediately after Stage 2.
+        if lens_result is not None:
+            console.print(render_identity_block(lens_result, face_hash=face_hash))
+
     console.print(render_comparison_panel(crop_path, match_data))
 
     table = Table(title="Discovered Social / Web Content", border_style="green")
@@ -379,9 +383,28 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
     )
     console.print(Panel(timing_summary, border_style="cyan"))
 
-    console.print(
-        Panel.fit(
-            "[bold green]PIPELINE COMPLETED SUCCESSFULLY END-TO-END[/bold green]",
+    # The big identity+anchor+tamper result box, with per-stage timing subtitle.
+    has_anchor = report.get("stage3", {}).get("tx_hash")
+    if has_anchor and lens_result is not None:
+        console.print(
+            render_final_summary(
+                lens_result,
+                face_hash=face_hash,
+                on_chain_fingerprint=report["stage3"].get("fingerprint", ""),
+                tx_hash=report["stage3"].get("tx_hash"),
+                block=report["stage3"].get("block"),
+                gas=report["stage3"].get("gas_used"),
+                verification_passed=report["stage4"].get("verification") == "PASSED",
+                tamper_detected=report["stage4"].get("tamper_detected", False),
+                tamper_local_hash=report["stage4"].get("tamper_local_hash"),
+                tamper_on_chain_hash=report["stage4"].get("tamper_on_chain_hash"),
+                total_seconds=total_elapsed,
+            )
+        )
+    else:
+        console.print(
+            Panel.fit(
+                "[bold green]PIPELINE COMPLETED SUCCESSFULLY END-TO-END[/bold green]",
             border_style="green",
         )
     )
