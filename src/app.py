@@ -42,6 +42,83 @@ BANNER = """\
 """
 
 
+# ---------------------------------------------------------------- dashboard stats
+
+
+def _count_reports() -> int:
+    """Count audit reports in reports/ directory."""
+    if not os.path.isdir("reports"):
+        return 0
+    return len([f for f in os.listdir("reports") if f.endswith(".json")])
+
+
+def _count_exports() -> int:
+    """Count exports in exports/ directory."""
+    if not os.path.isdir("exports"):
+        return 0
+    return len(os.listdir("exports"))
+
+
+def _count_cache() -> int:
+    """Count cached search results."""
+    if not os.path.isdir("cache"):
+        return 0
+    return len([f for f in os.listdir("cache") if f.endswith(".json")])
+
+
+def _recent_activities() -> list[str]:
+    """Get recent pipeline run summaries from reports/."""
+    import glob
+    import json
+    if not os.path.isdir("reports"):
+        return []
+    reports = sorted(glob.glob("reports/*.json"), reverse=True)[:5]
+    activities = []
+    for r in reports:
+        try:
+            with open(r, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            stage4 = data.get("stage4", {})
+            status = stage4.get("verification", "unknown")
+            ts = data.get("generated_at", "")
+            platform = data.get("stage2", {}).get("platform", "")
+            activities.append(f"[{ts[:19]}] {status} — {platform}")
+        except Exception:
+            continue
+    return activities
+
+
+def _stat_cards() -> "Columns":
+    """Build stat cards for the dashboard home screen."""
+    from rich.columns import Columns
+    cards = []
+    records_n = 0
+    try:
+        from src.blockchain import BlockchainManager
+        from src.config import CONTRACT_ADDRESS, PRIVATE_KEY, RPC_URL
+        from src.registry import fetch_all_records
+        if CONTRACT_ADDRESS:
+            bc = BlockchainManager(RPC_URL, PRIVATE_KEY, CONTRACT_ADDRESS)
+            records_n = len(fetch_all_records(bc))
+    except Exception:
+        pass
+    cards.append(Panel(f"[bold cyan]{records_n}[/bold cyan]\n[dim]records anchored[/dim]", border_style="cyan"))
+    cards.append(Panel(f"[bold green]{_count_cache()}[/bold green]\n[dim]cached searches[/dim]", border_style="green"))
+    cards.append(Panel(f"[bold magenta]{_count_reports()}[/bold magenta]\n[dim]audit reports[/dim]", border_style="magenta"))
+    cards.append(Panel(f"[bold yellow]{_count_exports()}[/bold yellow]\n[dim]registry exports[/dim]", border_style="yellow"))
+    return Columns(cards, equal=True, expand=True)
+
+
+def _activity_panel() -> Panel:
+    """Show recent pipeline run activity."""
+    activities = _recent_activities()
+    if not activities:
+        return Panel("[dim]No recent activity — run the pipeline to see results here.[/dim]", border_style="dim")
+    body = "\n".join(f"  • {a}" for a in activities)
+    return Panel(body, title="[dim]recent activity[/dim]", border_style="dim")
+
+
+
 # ---------------------------------------------------------------- GUI helpers
 
 
@@ -164,6 +241,20 @@ def _status_header() -> Panel:
 
 
 # ---------------------------------------------------------------- screens
+
+
+# ---------------------------------------------------------------- camera capture
+
+
+def capture_screen():
+    """Open the webcam for face capture with live detection."""
+    from src.camera import capture_from_camera
+
+    path = capture_from_camera()
+    if path:
+        _toast(f"Captured → {path}")
+    pause()
+
 
 
 def run_pipeline_wizard(demo: bool):
@@ -309,28 +400,30 @@ def setup_screen():
 # ---------------------------------------------------------------- main menu
 
 MENU = [
-    "Run Pipeline   (live SerpApi Google Lens search)",
-    "Run Pipeline   (demo mode — offline, no credits)",
-    "Records        (browse the on-chain registry)",
-    "Verify         (audit a record by hash or image)",
-    "Export         (registry to CSV / JSON)",
-    "System Status  (configuration report)",
-    "Setup Wizard   (deps · models · node · contract)",
-    "Smoke Test     (end-to-end without SerpApi)",
-    "Help           (CLI usage)",
+    "Capture Photo   (webcam face capture)",
+    "Run Pipeline    (live SerpApi Google Lens search)",
+    "Run Pipeline    (demo mode — offline, no credits)",
+    "Records         (browse the on-chain registry)",
+    "Verify          (audit a record by hash or image)",
+    "Export          (registry to CSV / JSON)",
+    "System Status   (configuration report)",
+    "Setup Wizard    (deps · models · node · contract)",
+    "Smoke Test      (end-to-end without SerpApi)",
+    "Help            (CLI usage)",
     "Exit",
 ]
 
 ACTIONS = {
-    0: lambda: run_pipeline_wizard(demo=False),
-    1: lambda: run_pipeline_wizard(demo=True),
-    2: records_screen,
-    3: verify_screen,
-    4: export_screen,
-    5: status_screen,
-    6: setup_screen,
-    7: smoke_screen,
-    8: help_screen,
+    0: capture_screen,
+    1: lambda: run_pipeline_wizard(demo=False),
+    2: lambda: run_pipeline_wizard(demo=True),
+    3: records_screen,
+    4: verify_screen,
+    5: export_screen,
+    6: status_screen,
+    7: setup_screen,
+    8: smoke_screen,
+    9: help_screen,
 }
 
 
@@ -340,6 +433,10 @@ def run_dashboard():
         console.clear()
         console.print(Text(BANNER, style="bold cyan"))
         console.print(_status_header())
+        console.print()
+        console.print(_stat_cards())
+        console.print()
+        console.print(_activity_panel())
         console.print()
         choice = select_option(
             "Main Menu",
@@ -357,3 +454,6 @@ def run_dashboard():
                 action()
             except KeyboardInterrupt:
                 console.print("\n[yellow]Interrupted — returning to menu.[/yellow]")
+            except Exception as e:
+                console.print(f"\n[red]Error: {e}[/red]")
+                pause()
