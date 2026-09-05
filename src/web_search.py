@@ -109,19 +109,29 @@ def _person_name_from_lens(lens_result):
     try:
         sel = getattr(lens_result, 'selected', None)
         if sel is None: return ''
-        for raw in (getattr(sel, 'title', None), getattr(sel, 'link', None)):
-            if not raw: continue
-            rs = str(raw)
-            m = re.match(r"^([A-Z][a-zA-Z\\-\']{1,30}(?:[ ][A-Z][a-zA-Z\\-\']{1,30}){1,3})", rs)
-            if m: return m.group(1)
-            if '/wiki/' in rs:
-                try:
-                    from urllib.parse import urlparse, unquote
-                    tail = unquote(urlparse(rs).path).rsplit('/', 1)[-1].replace('_', ' ')
-                    npp = [pp for pp in tail.split() if pp and pp[:1].isupper() and pp[1:].islower()]
-                    if 2 <= len(npp) <= 4:
-                        return ' '.join(npp)
-                except Exception: pass
+        # If the selected match is a LensMatch, use its title.
+        sel_title = (getattr(sel, 'title', None) or '')
+        # Prefer the strict validator (rejects "Legendary Actor Robert Duvall"
+        # and other editorialized obit-style titles).
+        candidate = {'title': sel_title, 'link': getattr(sel, 'link', None) or ''}
+        if _looks_like_person(candidate):
+            # Extract the 2-3 word name phrase.
+            mm = re.match(r"^([A-Z][a-zA-Z'\-]{1,30}(?:[ ][A-Z][a-zA-Z'\-]{1,30}){1,2})", sel_title)
+            if mm:
+                name = mm.group(1)
+                parts = name.split()
+                if 2 <= len(parts) <= 3 and parts[0].lower() not in _NAME_NONNAME_LEADWORDS:
+                    return name
+        # Fallback: parse Wikipedia URL path.
+        sel_link = getattr(sel, 'link', None) or ''
+        if '/wiki/' in sel_link:
+            try:
+                from urllib.parse import urlparse, unquote
+                tail = unquote(urlparse(sel_link).path).rsplit('/', 1)[-1].replace('_', ' ')
+                npp = [pp for pp in tail.split() if pp and pp[:1].isupper() and pp[1:].islower()]
+                if 2 <= len(npp) <= 4:
+                    return ' '.join(npp)
+            except Exception: pass
     except Exception: pass
     return ''
 
@@ -217,13 +227,78 @@ def _match_field(m, key, default=""):
         return m.get(key, default) or default
     return getattr(m, key, default) or default
 
+# Words that should NEVER be the first word of a personal name. These appear
+# frequently in editorialized Lens titles ("Legendary Actor Robert Duvall",
+# "RIP John Doe", "Top 10 Tom Cruise Movies", "Watch Amitabh Bachchan Live")
+# and the old "first 2-4 capitalized words" heuristic was accepting them as
+# a person name, which let the consensus / social boosts pick a random obit
+# over the real Wikipedia profile.
+_NAME_NONNAME_LEADWORDS = frozenset({
+    "watch", "see", "meet", "remember", "celebrate", "honor", "honour",
+    "discover", "find", "learn", "know", "tribute", "throwback",
+    "legendary", "famous", "top", "best", "worst", "most", "least",
+    "why", "how", "what", "when", "where", "who",
+    "inside", "exclusive", "breaking", "update", "latest", "new",
+    "rare", "unseen", "stunning", "amazing", "shocking", "sad",
+    "rip", "obit", "obituary", "dead", "dies", "death", "funeral",
+    "young", "old", "former", "current",
+    "actor", "actress", "singer", "director", "producer", "writer",
+    "star", "icon", "legend", "hero", "villain", "king", "queen",
+    "celebrity", "personality",
+    "photo", "image", "video", "clip", "scene", "movie", "film",
+    "show", "series", "episode", "interview", "press",
+    "biography", "profile", "story", "feature", "article", "post",
+    "the", "a", "an", "this", "that", "these", "those",
+    "celebrating", "happy", "merry",
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+})
+
+# Words that, if they appear immediately AFTER a candidate name phrase, indicate
+# the title is editorial prose and not a person page.
+_NAME_NONNAME_FOLLOWWORDS = frozenset({
+    "in", "on", "at", "for", "to", "by", "with", "from", "as", "of",
+    "is", "was", "are", "were", "be", "been", "being",
+    "has", "had", "have", "will", "would", "can", "could", "should",
+    "says", "said", "tells", "told", "gives", "gave", "gets", "got",
+    "dies", "dead", "death", "obituary", "rip", "funeral", "tribute",
+    "young", "old", "years", "vs", "versus",
+    "leaked", "reveals", "revealed", "shares", "shared", "posts", "posted",
+    "celebrates", "celebrated", "marks", "marked", "turns", "turned",
+    "reacts", "reacted", "responds", "responded",
+    "movie", "film", "show", "series", "episode", "scene", "clip", "video",
+    "interview", "biography", "profile", "story", "feature", "article",
+    "photo", "image", "throwback", "and", "or", "but", "plus",
+})
+
+
+def _is_prose_followed_name(name: str, full_title: str) -> bool:
+    """Return True if the words immediately after `name` in `full_title` look
+    like editorial prose rather than a profile-page separator."""
+    if not name or not full_title:
+        return False
+    low = full_title.lower()
+    pos = low.find(name.lower())
+    if pos < 0:
+        return False
+    after = low[pos + len(name):].lstrip(" ,;:")
+    if not after:
+        return False
+    first = after.split(maxsplit=1)[0] if after else ""
+    if first in _NAME_NONNAME_FOLLOWWORDS:
+        return True
+    return False
+
+
 def _looks_like_person(match, kg_title=None):
     """Return True iff the match looks like it is ABOUT a person.
     A match is a person match if any of:
       - KG title is a substring of the match title.
       - URL path is /wiki/FirstName_LastName (Wikipedia person URL format).
-      - Match title looks like a personal name: 2-4 Capitalized words,
-        optionally followed by a qualifier like - Wikipedia, - LinkedIn, etc.
+      - Match title looks like a personal name: 2-3 Capitalized words,
+        followed by either end-of-title, a comma + role, or " - SourceName".
+        The leading word must NOT be a stopword (RIP, Legendary, Top, Watch,
+        Actor, etc.) and the words after the name must NOT be editorial prose
+        ("in", "dies", "leaked", "vs", ...).
     """
     title = _match_field(match, "title")
     link = _match_field(match, "link")
@@ -244,13 +319,24 @@ def _looks_like_person(match, kg_title=None):
                 return True
         except Exception:
             pass
-    # Personal-name title pattern: 2-4 capitalized words at the start.
+    # Personal-name title pattern: 2-3 capitalized words at the start.
+    # Strict rules: leading word is a real name token, not a stopword; the
+    # words after the name (if any) are not editorial prose.
     if title:
-        m = re.match(r"^([A-Z][a-zA-Z'\-]{1,30}(?: [A-Z][a-zA-Z'\-]{1,30}){1,3})", title)
+        m = re.match(r"^([A-Z][a-zA-Z'\-]{1,30}(?: [A-Z][a-zA-Z'\-]{1,30}){1,2})", title)
         if m:
             name = m.group(1)
             parts = name.split()
-            if 2 <= len(parts) <= 4 and all(p[0].isupper() for p in parts):
+            if 2 <= len(parts) <= 3 and all(p[0].isupper() for p in parts):
+                first = parts[0].lower()
+                # Reject any name whose first word is a non-name leadword
+                # ("Legendary Actor Robert Duvall" -> first word "Legendary").
+                if first in _NAME_NONNAME_LEADWORDS:
+                    return False
+                # Reject if the title continues with editorial prose after the
+                # extracted name ("Manoj Bajpayee in conversation").
+                if _is_prose_followed_name(name, title):
+                    return False
                 return True
     return False
 
@@ -268,11 +354,17 @@ def _score_visual_match(match, kg_title=None):
     if "wikipedia.org" in link or ".edu" in link or ".gov" in link: score += 90; reasons.append("wikipedia+90")
     if any(tld in link for tld in OFFICIAL_TLDS_HINT): score += 20; reasons.append("official_tld+20")
     if any(p in link for p in SOCIAL_PLATFORMS):
-        score += 70; reasons.append("social+70")
+        # Social platforms get a small base boost + per-platform tiebreaker.
+        # Was +70, which let Reddit obits and random TikTok clips outscore
+        # real Wikipedia/IMDb profiles. +20 is enough to be a tiebreaker
+        # among equally-relevant matches but never the primary signal.
+        score += 20; reasons.append("social+20")
         if "linkedin.com" in link: score += 15
         if "facebook.com" in link: score += 5
         if "instagram.com" in link: score += 3
         if "youtube.com" in link: score -= 5
+        if "reddit.com" in link: score -= 10; reasons.append("reddit_penalty-10")
+        if "tiktok.com" in link: score -= 5; reasons.append("tiktok_penalty-5")
     if kg_title and _title_contains_kg(title, kg_title): score += 50
     if re.match(r"^[A-Z][a-z]+ [A-Z][a-z]+", title) and any(kw in title.lower() for kw in ("ceo","founder","actor","singer","director","president","scientist")): score += 10
     return score, "+".join(reasons) if reasons else "base"
@@ -679,20 +771,35 @@ class WebSearchEngine:
     @staticmethod
     def _extract_person_names(matches) -> set[str]:
         """Extract a set of likely person-names from titles. Names are
-        2-4 capitalized words, lowercased for comparison."""
+        2-3 capitalized words (strict), with a non-stopword lead and no
+        editorial prose immediately after."""
         out: set[str] = set()
         for m in matches or []:
-            t = (m.title or "").strip()
-            mm = re.match(r"^([A-Z][\w'\-]+(?:\s+[A-Z][\w'\-]+){1,3})", t)
-            if mm:
-                out.add(mm.group(1).lower())
+            name = self._first_person_name(m)
+            if name:
+                out.add(name)
         return out
 
     @staticmethod
     def _first_person_name(m) -> str:
+        """Extract the leading personal-name phrase from a match title, or
+        return "" if the title doesn't look like a profile page (2-3
+        capitalized words, not starting with a stopword, not followed by
+        editorial prose)."""
         t = (m.title or "").strip()
-        mm = re.match(r"^([A-Z][\w'\-]+(?:\s+[A-Z][\w'\-]+){1,3})", t)
-        return mm.group(1).lower() if mm else ""
+        # Same strict regex as _looks_like_person's title branch: 2-3 words.
+        mm = re.match(r"^([A-Z][a-zA-Z'\-]{1,30}(?:\s+[A-Z][a-zA-Z'\-]{1,30}){1,2})", t)
+        if not mm:
+            return ""
+        name = mm.group(1)
+        parts = name.split()
+        if not (2 <= len(parts) <= 3):
+            return ""
+        if parts[0].lower() in _NAME_NONNAME_LEADWORDS:
+            return ""
+        if _is_prose_followed_name(name, t):
+            return ""
+        return name.lower()
 
     @staticmethod
     def _name_match(a: str, b: str) -> bool:
@@ -798,11 +905,19 @@ class WebSearchEngine:
         names1 = self._extract_person_names(lens1.visual_matches)
         names2 = self._extract_person_names(lens2.visual_matches)
 
+        # Only count consensus hits when the extracted "name" from BOTH passes
+        # is a real personal name (validated by _first_person_name's strict
+        # rules). Empty strings (because the title was "Legendary Actor ..." or
+        # ended in a non-name followword) won't match, so the consensus boost
+        # can't fire on an obit that happened to surface in both crops.
+        real_names1 = {n for n in names1 if n}
+        real_names2 = {n for n in names2 if n}
+
         from dataclasses import replace as _dc_replace
         boosted: list[LensMatch] = []
         for m in lens1.visual_matches:
             person = self._first_person_name(m)
-            if person and any(self._name_match(person, n) for n in names2):
+            if person and any(self._name_match(person, n) for n in real_names2):
                 boosted.append(_dc_replace(m, reason=(m.reason or "") + " | consensus_hit"))
             else:
                 boosted.append(m)
@@ -812,7 +927,7 @@ class WebSearchEngine:
             if (m.link or "").lower() in seen1:
                 continue
             person = self._first_person_name(m)
-            if person and any(self._name_match(person, n) for n in names1):
+            if person and any(self._name_match(person, n) for n in real_names1):
                 boosted.append(_dc_replace(m, reason=(m.reason or "") + " | consensus_hit"))
             else:
                 boosted.append(m)
@@ -822,7 +937,10 @@ class WebSearchEngine:
         for m in boosted:
             s, r = _score_visual_match(m, kg_title)
             if "consensus_hit" in (m.reason or ""):
-                s += 50
+                # Consensus boost: was +50, now +25. Even with strict name
+                # validation, a name that appears in BOTH Lens passes is a
+                # weaker signal than a Wikipedia anchor or a KG title match.
+                s += 25
             candidates.append((s, m, r))
         if lens1.knowledge_graph:
             candidates.append((9999, lens1.knowledge_graph, "knowledge_graph_entity"))
