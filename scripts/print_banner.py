@@ -58,14 +58,31 @@ def banner(mode_pick, chain_pick):
         tag = "  [bold green]" + hint + "[/bold green]" if hint else ""
         t2.add_row("[" + idx + "]", label + tag)
     console.print(Panel(t2, title="[bold magenta] " + chr(0x25C6) + " BLOCKCHAIN MODE [/bold magenta]", border_style="magenta", padding=(0, 2)))
-    mode_map = {"1": "bundled sample", "2": "webcam capture", "3": "user image", "4": "CANCEL"}
-    chain_map = {"F": "FRESH chain (auto-restart Anvil + redeploy)", "R": "REUSE existing chain and contract"}
-    ch = Table.grid(padding=(0, 2))
-    ch.add_column(style="bold yellow", justify="right", width=12)
-    ch.add_column(style="bold white")
-    ch.add_row("Input picked:", mode_map.get(mode_pick, mode_pick))
-    ch.add_row("Chain picked:", chain_map.get(chain_pick, chain_pick))
-    console.print(Panel(ch, border_style="green", padding=(0, 2)))
+    console.print()
+
+
+def confirm(input_pick, chain_pick):
+    """One-line confirmation after the user picks input + chain mode.
+
+    Replaces the previous behaviour of re-printing the entire banner
+    (which flickered the screen and printed the same 30-line panel twice).
+    """
+    mode_map = {
+        "1": "bundled sample (data\\sample_face.jpg)",
+        "2": "webcam capture (data\\captured_face.jpg)",
+        "3": "user image",
+        "4": "CANCEL",
+    }
+    chain_map = {
+        "F": "FRESH chain (auto-restart Anvil + redeploy)",
+        "R": "REUSE existing chain and contract",
+    }
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold yellow", justify="right", width=14)
+    grid.add_column(style="bold white")
+    grid.add_row("Input picked:", mode_map.get(input_pick, input_pick))
+    grid.add_row("Chain picked:", chain_map.get(chain_pick, chain_pick))
+    console.print(Panel(grid, border_style="green", padding=(0, 2)))
     console.print()
 def start_block(input_pick, chain_pick):
     console.clear()
@@ -146,13 +163,15 @@ def result(report_path):
     )
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=["banner", "start", "result"], required=True)
+    p.add_argument("--mode", choices=["banner", "confirm", "start", "result"], required=True)
     p.add_argument("--input-pick", default="1")
     p.add_argument("--chain-pick", default="F")
     p.add_argument("--report", default="")
     a = p.parse_args()
     if a.mode == "banner":
         banner(a.input_pick, a.chain_pick)
+    if a.mode == "confirm":
+        confirm(a.input_pick, a.chain_pick)
     if a.mode == "start":
         start_block(a.input_pick, a.chain_pick)
     if a.mode == "result":

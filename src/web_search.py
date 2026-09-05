@@ -768,11 +768,20 @@ class WebSearchEngine:
         )
 
     # ------------------------------------------------------- concurrency
-    @staticmethod
-    def _extract_person_names(matches) -> set[str]:
+    def _extract_person_names(self, matches) -> set[str]:
         """Extract a set of likely person-names from titles. Names are
         2-3 capitalized words (strict), with a non-stopword lead and no
-        editorial prose immediately after."""
+        editorial prose immediately after.
+
+        NOTE: this is a regular instance method (NOT @staticmethod) because
+        it calls self._first_person_name. Prior to commit c1522a4 it was
+        a @staticmethod with a no-self inline body; when I rewrote the
+        body to delegate to _first_person_name, I forgot to remove the
+        @staticmethod decorator, which made every live run crash with
+        'NameError: name self is not defined' the moment search_with_consensus
+        reached this line. The single-pass search_face_on_web path doesn't
+        call this, so test_accuracy.py never noticed.
+        """
         out: set[str] = set()
         for m in matches or []:
             name = self._first_person_name(m)

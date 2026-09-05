@@ -71,8 +71,8 @@ if not defined CHAIN_MODE set "CHAIN_MODE=F"
 if /I "%CHAIN_MODE%"=="F" set "CHAIN_FRESH=1"
 if /I "%CHAIN_MODE%"=="R" set "CHAIN_FRESH=0"
 if /I not "%CHAIN_MODE%"=="F" if /I not "%CHAIN_MODE%"=="R" set "CHAIN_FRESH=1"
-REM re-print banner with the user's actual picks
-venv\Scripts\python.exe scripts\print_banner.py --mode banner --input-pick "%INPUT_MODE%" --chain-pick "%CHAIN_MODE%"
+REM Show a one-line confirmation of the user's actual picks (avoids the screen flicker of re-printing the full banner)
+venv\Scripts\python.exe scripts\print_banner.py --mode confirm --input-pick "%INPUT_MODE%" --chain-pick "%CHAIN_MODE%"
 goto :preflight
 
 :noninteractive

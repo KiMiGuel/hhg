@@ -226,9 +226,19 @@ def main() -> int:
         console.print("\n[yellow]Interrupted by user.[/yellow]")
         return 130
     except Exception as exc:
+        # Print the full traceback to stderr (and capture it for the panel)
+        # so the next time something breaks we can see WHERE in the codebase
+        # the error happened, not just the exception message.
+        import traceback as _tb
+        tb_text = _tb.format_exc()
+        try:
+            print(tb_text, file=sys.stderr, flush=True)
+        except Exception:
+            pass
         console.print(
             Panel(
                 f"[bold red]LIVE RUN FAILED[/bold red]\n\n{exc}\n\n"
+                f"[dim]{tb_text.splitlines()[-3] if tb_text else ''}[/dim]\n\n"
                 "[dim]Try: python main.py live --image data/sample_face.jpg --fresh-chain[/dim]",
                 border_style="red",
             )
