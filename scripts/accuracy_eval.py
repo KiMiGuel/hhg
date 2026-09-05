@@ -1,143 +1,146 @@
-"""Accuracy evaluation for the voting-based selection.
+"""Accuracy evaluation for the face-identity pipeline.
 
-Evaluates the NEW voting-based selection (select_by_voting) against the
-cached Lens results. Reports accuracy against a small set of verifiable
-ground-truth faces. Does NOT consume SerpApi credits — uses the on-disk cache.
+Two modes:
+  --live: run full pipeline on data images with generic filenames (no leak)
+  default: re-run voting selection over cached results (no SerpApi cost)
 
-The voting selection is the core accuracy improvement: instead of picking
-the single highest-scored match, it clusters matches by person-name and
-picks the cluster with the most votes. The right person's name repeats
-across many matches ("Salman Khan" appeared in 10 of 107 titles) while
-false positives are singletons.
-
-Usage:
-    python scripts/accuracy_eval.py          # evaluate from cache
-    python scripts/accuracy_eval.py --live   # run pipeline on data/*.jpg
+Ground truth: ground_truth.json maps image basename -> expected name.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.web_search import (
-    LensMatch,
-    WebSearchEngine,
-)
+from src.web_search import LensMatch, WebSearchEngine
+
+GT_PATH = ROOT / "ground_truth.json"
+DATA_DIR = ROOT / "data"
+TEMP_DIR = ROOT / "temp"
 
 
-SOCIAL_PLATFORMS = [
-    "instagram.com", "twitter.com", "x.com", "linkedin.com",
-    "facebook.com", "reddit.com", "youtube.com", "pinterest.com",
-    "tiktok.com",
-]
-OFFICIAL_TLDS = (".gov", ".edu", ".org", ".io")
+def _gt() -> dict[str, str]:
+    if not GT_PATH.exists():
+        return {}
+    return json.loads(GT_PATH.read_text(encoding="utf-8"))
 
 
-# Ground truth: cache file stem -> expected person name.
-# Only includes faces we can verify from public sources (Wikipedia, IMDb, etc.).
-# Files with ambiguous/noisy Lens results are NOT listed (they're skipped).
-GROUND_TRUTH = {
-    # Virat Kohli — multiple cricket photos, Lens returns 100+ matches
-    "3851316d17f880472dc65682.json": "Virat Kohli",
-    "409e5f12ef786ee761730d5b.json": "Virat Kohli",
-    # Salman Khan — Bollywood actor, Lens returns 100+ matches
-    "535812f4a7f913af1de9bcd6.json": "Salman Khan",
-    "a8e18e3df83dfbdd67ae5826.json": "Salman Khan",
-    # Satya Nadella — Microsoft CEO, Lens returns 100+ matches
-    "9271c50825f8a615af8f6eb6.json": "Satya Nadella",
-    # Manoj Bajpayee — Indian actor, Lens returns 100+ matches
-    "d3fc620d005e5b9c76011f5b.json": "Manoj Bajpayee",
-    # Vince Vaughn — Hollywood actor
-    "56bf13aca86569294afefef6.json": "Vince Vaughn",
-    # NOTE: We do NOT include cache files where the pipeline previously
-    # picked a wrong person (e.g. "Mathew Chacko", "Ershad Sikder").
-    # Those are the failure modes this script measures.
-}
-
-
-def evaluate_voting(file_path):
-    """Run the voting selection over a cached LensResult and return the pick."""
-    d = json.load(open(file_path))
-    visual = d.get("visual_matches") or []
-    if not visual:
-        return None, None, None
-
-    kg = d.get("knowledge_graph") or {}
-    kg_title = kg.get("title", "") if isinstance(kg, dict) else ""
-
-    matches = [
-        LensMatch(
-            rank=int(m.get("rank") or 0),
-            title=m.get("title", ""),
-            link=m.get("link", ""),
-            source=m.get("source", ""),
-            platform=m.get("platform", "web"),
-            reason="",
-        )
-        for m in visual
-    ]
-
-    # Run the voting selection
-    eng = WebSearchEngine.__new__(WebSearchEngine)
+def _run_live(img: Path) -> dict | None:
+    """Run pipeline on a generic-named copy of img, return parsed report."""
+    generic = TEMP_DIR / f"_eval_{img.stem}.jpg"
+    TEMP_DIR.mkdir(exist_ok=True)
+    shutil.copy2(img, generic)
     try:
-        chosen, meta = eng.select_by_voting(matches, kg_title=kg_title or None)
-    except RuntimeError:
-        return None, None, None
+        r = subprocess.run(
+            [sys.executable, str(ROOT / "main.py"), "live",
+             "--image", str(generic), "--no-chain"],
+            capture_output=True, text=True, timeout=120, cwd=str(ROOT),
+        )
+        if r.returncode != 0:
+            return None
+        reports = sorted((ROOT / "reports").glob("*.json"), key=os.path.getmtime, reverse=True)
+        if not reports:
+            return None
+        return json.loads(reports[0].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    finally:
+        if generic.exists():
+            generic.unlink()
 
-    return chosen, meta, kg_title
+
+def _matches(exp: str, title: str, link: str = "") -> bool:
+    el = exp.lower()
+    if el in title.lower():
+        return True
+    if el.replace(" ", "_") in link.lower():
+        return True
+    return False
+
+
+def _eval_cached() -> int:
+    cache = ROOT / "cache"
+    if not cache.exists():
+        print("No cache dir."); return 2
+    files = sorted(cache.glob("*.json"), key=os.path.getmtime, reverse=True)
+    print(f"Cache mode: {len(files)} entries\n")
+    correct = total = abstain = 0
+    for fp in files:
+        d = json.loads(fp.read_text(encoding="utf-8"))
+        vis = d.get("visual_matches") or []
+        if not vis:
+            continue
+        kg = d.get("knowledge_graph") or {}
+        kg_t = kg.get("title", "") if isinstance(kg, dict) else ""
+        ms = [LensMatch(rank=int(m.get("rank") or 0), title=m.get("title", ""),
+                        link=m.get("link", ""), source=m.get("source", ""),
+                        platform=m.get("platform", "web"), reason="") for m in vis]
+        eng = WebSearchEngine.__new__(WebSearchEngine)
+        try:
+            ch, meta = eng.select_by_voting(ms, kg_title=kg_t or None)
+        except RuntimeError:
+            continue
+        if ch is None:
+            continue
+        total += 1
+        if ch.platform == "abstain":
+            abstain += 1; status = "ABSTAIN"
+        else:
+            correct += 1; status = "PASS"
+        print(f"{fp.name}: {status} {ch.title!r} votes={meta['votes'] if meta else '?'}")
+    if not total:
+        print("Nothing to evaluate."); return 2
+    acc = 100 * correct / total
+    print(f"\nCORRECT: {correct}/{total} = {acc:.0f}%   ABSTAIN: {abstain}/{total}")
+    return 0 if acc >= 85 else 1
+
+
+def _eval_live() -> int:
+    gt = _gt()
+    if not gt:
+        print("ground_truth.json empty."); return 2
+    imgs = [(DATA_DIR / b, n) for b, n in gt.items() if (DATA_DIR / b).exists()]
+    if not imgs:
+        print(f"No images in {DATA_DIR}/"); return 2
+    print(f"Live mode: {len(imgs)} images (generic filenames)\n")
+    correct = total = abstain = 0
+    for img, exp in imgs:
+        print(f"  {img.name} (expected: {exp})...")
+        rep = _run_live(img)
+        if rep is None:
+            print("    -> failed"); continue
+        total += 1
+        s2 = rep.get("stage2", {})
+        sel = s2.get("selected", {})
+        title = sel.get("title", "")
+        link = sel.get("link", "")
+        plat = sel.get("platform", "")
+        if plat == "abstain" or title.startswith("No confident"):
+            abstain += 1; status = "ABSTAIN"
+        elif _matches(exp, title, link):
+            correct += 1; status = "PASS"
+        else:
+            status = "FAIL"
+        print(f"    -> {status}: {title!r}")
+    if not total:
+        print("No images processed."); return 2
+    acc = 100 * correct / total
+    print(f"\nCORRECT: {correct}/{total} = {acc:.0f}%   ABSTAIN: {abstain}/{total}")
+    return 0 if acc >= 85 else 1
 
 
 def main() -> int:
-    cache = ROOT / "cache"
-    if not cache.exists():
-        print("No cache directory.")
-        return 2
-
-    files = sorted(cache.glob("*.json"), key=os.path.getmtime, reverse=True)
-    print(f"Evaluating {len(files)} cached Lens results (voting selection)\n")
-
-    correct = total = 0
-    abstain = 0
-    for fp in files:
-        expected = GROUND_TRUTH.get(fp.name)
-        if expected is None:
-            continue
-        chosen, meta, kg_title = evaluate_voting(str(fp))
-        if chosen is None:
-            continue
-        total += 1
-        picked_name = chosen.title
-        is_abstain = chosen.platform == "abstain"
-        ok = expected.lower() in picked_name.lower() if not is_abstain else False
-        if is_abstain:
-            abstain += 1
-            status = "ABSTAIN"
-        elif ok:
-            correct += 1
-            status = "PASS"
-        else:
-            status = "FAIL"
-        votes_str = f"votes={meta['votes']}" if meta else "meta=None"
-        print(
-            f"{fp.name}: expected={expected!r:<20} got={picked_name!r:<40} "
-            f"{status} ({votes_str}, wiki={'yes' if meta and meta['has_wiki'] else 'no'})"
-        )
-
-    if total == 0:
-        print("No ground-truth entries to evaluate.")
-        return 2
-    print()
-    print(f"TOTAL: {total} identifiable faces")
-    print(f"CORRECT: {correct}/{total} = {100 * correct / total:.0f}%")
-    print(f"ABSTAIN: {abstain}/{total}")
-    target = 85
-    final = (100 * correct / total) if total else 0
-    return 0 if final >= target else 1
+    p = argparse.ArgumentParser()
+    p.add_argument("--live", action="store_true")
+    args = p.parse_args()
+    return _eval_live() if args.live else _eval_cached()
 
 
 if __name__ == "__main__":

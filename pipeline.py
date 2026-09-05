@@ -492,32 +492,7 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         if lens_result is not None:
             console.print(render_identity_block(lens_result, face_hash=face_hash))
 
-        # No-identity from Lens. Try a deeper, hint-based search BEFORE we
-        # give up: if the file name encodes a person name (e.g.
-        # "saurav_joshi.jpg"), we have a strong prior and can build a
-        # synthetic LensResult from Wikipedia + Google text search. This
-        # turns a 0% accuracy on noisy webcam shots into ~80%+ when the
-        # user named the file sensibly.
-        if getattr(lens_result, "visual_match_count", 0) == 0:
-            name_hint = _derive_name_hint_from_path(input_image_path)
-            if name_hint:
-                console.print(
-                    f"[dim]  Stage 2 cascade: file name suggests [bold]{name_hint}[/bold]; "
-                    "querying Wikipedia + Google text search...[/dim]"
-                )
-                hint_result = _hint_based_search(name_hint, search_engine)
-                if hint_result is not None and hint_result.visual_match_count > 0:
-                    lens_result = hint_result
-                    match_data = lens_result
-                    console.print(
-                        f"[green]✔[/green] Hint-based search matched [bold]{hint_result.selected.title}[/bold]"
-                    )
-                    console.print(render_identity_block(lens_result, face_hash=face_hash))
-                else:
-                    console.print(
-                        f"[dim]  Hint-based search for {name_hint!r} returned no Wikipedia page.[/dim]"
-                    )
-
+        # No-identity from Lens.
         if getattr(lens_result, "visual_match_count", 0) == 0:
             elapsed2 = time.perf_counter() - t_stage2
             console.print(f"[dim]  Stage 2 completed in {elapsed2:.2f}s[/dim]")

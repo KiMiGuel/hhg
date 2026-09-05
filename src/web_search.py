@@ -759,7 +759,10 @@ class WebSearchEngine:
         # Policy: a single Wikipedia page for a random person (1 vote, no
         # consensus) must NOT win. Require either 2+ votes (the name repeats
         # across matches) OR cross-crop consensus. has_wiki alone is not enough.
-        chosen, meta = self.select_by_voting(all_visual, kg_title=None)
+        # NOTE: pass kg_title (not None) so the KG bonus fires when Lens
+        # returns a Knowledge Graph entity — this is the single strongest
+        # signal and should always be rewarded.
+        chosen, meta = self.select_by_voting(all_visual, kg_title=kg_title)
         strong = (meta["votes"] >= 2) or meta["consensus"]
         confident = strong and meta["cluster_score"] >= self.MIN_CLUSTER_SCORE
         if not confident:

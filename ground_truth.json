@@ -1,0 +1,9 @@
+{
+  "_comment": "Maps input image basename (lower-case, spaces->underscores) to expected person name. The accuracy eval reads each report's stage1.image and matches against these keys.",
+  "salman_khan.jpg": "Salman Khan",
+  "satya_nadella.jpg": "Satya Nadella",
+  "satya_nadella_official.jpg": "Satya Nadella",
+  "virat_kohli.jpg": "Virat Kohli",
+  "manoj_bajpayee.jpg": "Manoj Bajpayee",
+  "sample_face.jpg": "Satya Nadella"
+}
