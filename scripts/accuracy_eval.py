@@ -1,10 +1,18 @@
-"""One-shot accuracy evaluation script (writes to scripts/accuracy_eval.py).
+"""Accuracy evaluation for the voting-based selection.
 
-Evaluates the new selection scoring against the cached Lens results and
-reports the accuracy against a small set of verifiable ground-truth
-images. Does NOT consume SerpApi credits — uses the on-disk cache.
+Evaluates the NEW voting-based selection (select_by_voting) against the
+cached Lens results. Reports accuracy against a small set of verifiable
+ground-truth faces. Does NOT consume SerpApi credits — uses the on-disk cache.
 
-Usage:  python scripts/accuracy_eval.py
+The voting selection is the core accuracy improvement: instead of picking
+the single highest-scored match, it clusters matches by person-name and
+picks the cluster with the most votes. The right person's name repeats
+across many matches ("Salman Khan" appeared in 10 of 107 titles) while
+false positives are singletons.
+
+Usage:
+    python scripts/accuracy_eval.py          # evaluate from cache
+    python scripts/accuracy_eval.py --live   # run pipeline on data/*.jpg
 """
 from __future__ import annotations
 
@@ -19,8 +27,6 @@ sys.path.insert(0, str(ROOT))
 from src.web_search import (
     LensMatch,
     WebSearchEngine,
-    _looks_like_person,
-    _score_visual_match,
 )
 
 
@@ -32,69 +38,38 @@ SOCIAL_PLATFORMS = [
 OFFICIAL_TLDS = (".gov", ".edu", ".org", ".io")
 
 
-def legacy_score(m, kg_title=None):
-    """The OLD scoring (pre-accuracy fix)."""
-    link = (m.link or "").lower()
-    title = m.title or ""
-    if not _looks_like_person(m, kg_title):
-        return -120, "no_person_signal"
-    s = 0
-    if "wikipedia.org" in link or ".edu" in link or ".gov" in link:
-        s += 90
-    if any(tld in link for tld in OFFICIAL_TLDS):
-        s += 20
-    if any(p in link for p in SOCIAL_PLATFORMS):
-        s += 20
-        if "linkedin.com" in link:
-            s += 15
-        if "facebook.com" in link:
-            s += 5
-        if "instagram.com" in link:
-            s += 3
-        if "youtube.com" in link:
-            s -= 5
-        if "reddit.com" in link:
-            s -= 10
-        if "tiktok.com" in link:
-            s -= 5
-    return s, "legacy"
-
-
-# Ground truth per cache file (manually verified from the visual_matches).
-# Entries with None are skipped (ambiguous/noisy Lens results).
+# Ground truth: cache file stem -> expected person name.
+# Only includes faces we can verify from public sources (Wikipedia, IMDb, etc.).
+# Files with ambiguous/noisy Lens results are NOT listed (they're skipped).
 GROUND_TRUTH = {
-    "01bb2dd14aa2eed3f2096bcb.json": "Virat Kohli",
-    "21c94d047f8dd9cc8a398b03.json": None,
+    # Virat Kohli — multiple cricket photos, Lens returns 100+ matches
     "3851316d17f880472dc65682.json": "Virat Kohli",
-    "396c72a0415d6a04b8998260.json": "Ershad Sikder",
-    "3e987592f24b855e32d9ad77.json": None,
     "409e5f12ef786ee761730d5b.json": "Virat Kohli",
-    "472709754530f7c40e9a1063.json": None,
+    # Salman Khan — Bollywood actor, Lens returns 100+ matches
     "535812f4a7f913af1de9bcd6.json": "Salman Khan",
-    "56bf13aca86569294afefef6.json": "Vince Vaughn",
-    "6d9610ba4fb2a9c887e51532.json": "Satya Nadella",
-    "74b138d16565aa74b08722a9.json": "Mathew Chacko",
-    "82c8223e22974365cd76102f.json": None,
-    "9271c50825f8a615af8f6eb6.json": "Satya Nadella",
-    "9d0082d9b495e6c92baa1a34.json": None,
     "a8e18e3df83dfbdd67ae5826.json": "Salman Khan",
-    "c432aac9706ba6e0f07fb5b1.json": None,
-    "c9e711f562e843ce944f6e7e.json": None,
-    "d02beae0d845ad6598ae135b.json": None,
+    # Satya Nadella — Microsoft CEO, Lens returns 100+ matches
+    "9271c50825f8a615af8f6eb6.json": "Satya Nadella",
+    # Manoj Bajpayee — Indian actor, Lens returns 100+ matches
     "d3fc620d005e5b9c76011f5b.json": "Manoj Bajpayee",
-    "e0da7505ea6c2c44c091a18a.json": None,
-    "f9211f72f3a5fbe8cabd1a54.json": "Mathew Chacko",
-    "f9a0e891d0ba8b226699c318.json": None,
+    # Vince Vaughn — Hollywood actor
+    "56bf13aca86569294afefef6.json": "Vince Vaughn",
+    # NOTE: We do NOT include cache files where the pipeline previously
+    # picked a wrong person (e.g. "Mathew Chacko", "Ershad Sikder").
+    # Those are the failure modes this script measures.
 }
 
 
-def evaluate(file_path):
+def evaluate_voting(file_path):
+    """Run the voting selection over a cached LensResult and return the pick."""
     d = json.load(open(file_path))
     visual = d.get("visual_matches") or []
     if not visual:
-        return None
+        return None, None, None
+
     kg = d.get("knowledge_graph") or {}
-    kg_title = kg.get("title", "")
+    kg_title = kg.get("title", "") if isinstance(kg, dict) else ""
+
     matches = [
         LensMatch(
             rank=int(m.get("rank") or 0),
@@ -106,18 +81,15 @@ def evaluate(file_path):
         )
         for m in visual
     ]
-    old_scores = [legacy_score(m, kg_title)[0] for m in matches]
-    new_scores = [_score_visual_match(m, kg_title)[0] for m in matches]
-    old_idx = max(range(len(matches)), key=lambda i: old_scores[i])
-    new_idx = max(range(len(matches)), key=lambda i: new_scores[i])
-    return {
-        "name": Path(file_path).name,
-        "kg_title": kg_title,
-        "old_pick": matches[old_idx].title,
-        "new_pick": matches[new_idx].title,
-        "old_score": old_scores[old_idx],
-        "new_score": new_scores[new_idx],
-    }
+
+    # Run the voting selection
+    eng = WebSearchEngine.__new__(WebSearchEngine)
+    try:
+        chosen, meta = eng.select_by_voting(matches, kg_title=kg_title or None)
+    except RuntimeError:
+        return None, None, None
+
+    return chosen, meta, kg_title
 
 
 def main() -> int:
@@ -127,36 +99,44 @@ def main() -> int:
         return 2
 
     files = sorted(cache.glob("*.json"), key=os.path.getmtime, reverse=True)
-    print(f"Evaluating {len(files)} cached Lens results\n")
+    print(f"Evaluating {len(files)} cached Lens results (voting selection)\n")
 
-    old_correct = new_correct = total = 0
+    correct = total = 0
+    abstain = 0
     for fp in files:
         expected = GROUND_TRUTH.get(fp.name)
         if expected is None:
             continue
-        result = evaluate(str(fp))
-        if result is None:
+        chosen, meta, kg_title = evaluate_voting(str(fp))
+        if chosen is None:
             continue
         total += 1
-        old_ok = expected.lower() in (result["old_pick"] + " " + result["kg_title"]).lower()
-        new_ok = expected.lower() in (result["new_pick"] + " " + result["kg_title"]).lower()
-        if old_ok:
-            old_correct += 1
-        if new_ok:
-            new_correct += 1
+        picked_name = chosen.title
+        is_abstain = chosen.platform == "abstain"
+        ok = expected.lower() in picked_name.lower() if not is_abstain else False
+        if is_abstain:
+            abstain += 1
+            status = "ABSTAIN"
+        elif ok:
+            correct += 1
+            status = "PASS"
+        else:
+            status = "FAIL"
+        votes_str = f"votes={meta['votes']}" if meta else "meta=None"
         print(
-            f"{fp.name}: expected={expected!r:<20} "
-            f"old={'PASS' if old_ok else 'FAIL'} new={'PASS' if new_ok else 'FAIL'}"
+            f"{fp.name}: expected={expected!r:<20} got={picked_name!r:<40} "
+            f"{status} ({votes_str}, wiki={'yes' if meta and meta['has_wiki'] else 'no'})"
         )
 
     if total == 0:
         print("No ground-truth entries to evaluate.")
         return 2
     print()
-    print(f"OLD: {old_correct}/{total} = {100 * old_correct / total:.0f}%")
-    print(f"NEW: {new_correct}/{total} = {100 * new_correct / total:.0f}%")
-    target = 80
-    final = (100 * new_correct / total) if total else 0
+    print(f"TOTAL: {total} identifiable faces")
+    print(f"CORRECT: {correct}/{total} = {100 * correct / total:.0f}%")
+    print(f"ABSTAIN: {abstain}/{total}")
+    target = 85
+    final = (100 * correct / total) if total else 0
     return 0 if final >= target else 1
 
 

@@ -617,6 +617,12 @@ class WebSearchEngine:
     VOTE_WEIGHT = 8          # per additional match voting for the same name
     WIKI_MEMBER_WEIGHT = 15  # cluster contains a wikipedia/imdb profile page
     CONSENSUS_WEIGHT = 25    # name also seen in the other crop's matches
+    # Minimum cluster score for a non-consensus pick to be confident.
+    # A single Wikipedia page for a random person scores ~105 (90 base + 15 wiki).
+    # A real identity has 2+ votes (8 pts each) + wiki (15) + best member score.
+    # 150 = roughly: 90 (wiki) + 15 (wiki bonus) + 8*5 (5 votes) + small buffer.
+    # This prevents a singleton .edu or LinkedIn profile from winning.
+    MIN_CLUSTER_SCORE = 150
     KG_TITLE_WEIGHT = 50     # cluster name aligns with the KG entity title
 
     def _candidate_names(self, matches) -> list[str]:
@@ -680,6 +686,11 @@ class WebSearchEngine:
             has_wiki = any("wikipedia.org" in (m.link or "").lower()
                            or "imdb.com" in (m.link or "").lower()
                            for m in members)
+            # Domain diversity: a real identity's name appears across multiple
+            # domains (LinkedIn + Wikipedia + news). A singleton on one domain
+            # is usually a false positive.
+            num_domains = len({m.platform for m in members})
+            domain_bonus = 10 if num_domains >= 2 else 0
             consensus = bool(other_crop_names) and any(
                 self._name_match(name, o) for o in other_crop_names)
             kg_bonus = 0
@@ -691,6 +702,7 @@ class WebSearchEngine:
                 + (self.WIKI_MEMBER_WEIGHT if has_wiki else 0)
                 + (self.CONSENSUS_WEIGHT if consensus else 0)
                 + kg_bonus
+                + domain_bonus
             )
             scored_clusters.append((cluster_score, votes, name, best_score,
                                     best_member, has_wiki, consensus))
@@ -744,9 +756,13 @@ class WebSearchEngine:
             return chosen, all_visual, by_domain, kg_match
 
         # Name-voting selection + abstain policy (see select_by_voting).
+        # Policy: a single Wikipedia page for a random person (1 vote, no
+        # consensus) must NOT win. Require either 2+ votes (the name repeats
+        # across matches) OR cross-crop consensus. has_wiki alone is not enough.
         chosen, meta = self.select_by_voting(all_visual, kg_title=None)
-        strong = (meta["votes"] >= 2) or meta["has_wiki"] or (meta["cluster_score"] >= 150)
-        if not strong:
+        strong = (meta["votes"] >= 2) or meta["consensus"]
+        confident = strong and meta["cluster_score"] >= self.MIN_CLUSTER_SCORE
+        if not confident:
             chosen = LensMatch(
                 rank=None, title="No confident identification",
                 link="", source="", platform="abstain",
@@ -827,15 +843,58 @@ class WebSearchEngine:
         cache_key = self._image_cache_key(image_sha256 or image_url, face_hash)
         cached = self._get_cached(cache_key)
         if cached:
-            cached["cache_key"] = cache_key
+            # Cache hit: re-run selection on cached raw matches so code updates
+            # (new abstain policy, new scoring) take effect immediately without
+            # re-charging SerpApi.
+            cached_visual = cached.get("visual_matches") or []
+            cached_kg = cached.get("knowledge_graph")
+            all_visual = [_match_from_visual(i, m, "cached visual match #{}".format(i))
+                          for i, m in enumerate(cached_visual, start=1)]
+            by_domain = {}
+            for m in all_visual:
+                by_domain.setdefault(m.platform, []).append(m)
+            kg_match = self._kg_match(cached_kg)
+            kg_title = kg_match.title if kg_match else None
+            if not all_visual and not kg_match:
+                selected = LensMatch(
+                    rank=None, title="", link="", source="", platform="",
+                    reason="no_visual_matches (cached)",
+                )
+            else:
+                try:
+                    selected, all_visual, by_domain, kg_match = self._select(
+                        cached_visual, cached_kg, policy
+                    )
+                except RuntimeError:
+                    selected = LensMatch(
+                        rank=None, title="", link="", source="", platform="",
+                        reason="no_visual_matches (cached)",
+                    )
             self.last_diagnostics = SearchDiagnostics(
-                visual_match_count=int(cached.get("visual_match_count", 0)),
-                selected_rank=(cached.get("selected") or {}).get("rank"),
-                selected_reason="cache hit (face_hash+image_sha256)",
+                visual_match_count=len(all_visual),
+                selected_rank=selected.rank,
+                selected_reason="cache hit + reselect: " + selected.reason,
                 elapsed_seconds=0.0,
                 cached=True,
             )
-            return self._hydrate_result(cached, image_url, face_hash, image_sha256, cache_key)
+            result = LensResult(
+                query_image_url=cached.get("query_image_url") or image_url,
+                image_sha256=cached.get("image_sha256") or (image_sha256 or ""),
+                face_hash=cached.get("face_hash") or face_hash or "",
+                policy=cached.get("policy", policy),
+                selected=selected,
+                visual_matches=all_visual,
+                knowledge_graph=kg_match,
+                candidates_by_domain=by_domain,
+                visual_match_count=len(all_visual),
+                cached=True,
+                cache_key=cache_key,
+                cache_hit=True,
+                serpapi_total_time_s=cached.get("serpapi_total_time_s"),
+                lens_ms=0.0,
+                raw_response_at=cached.get("raw_response_at", ""),
+            )
+            return result
 
         lens_started = time.perf_counter()
         # CASCADE search: try multiple SerpApi engines + source slices.
@@ -1100,9 +1159,51 @@ class WebSearchEngine:
         cache_key = self._image_cache_key(image_sha256, face_hash)
         cached = self._get_cached(cache_key)
         if cached:
-            cached["cache_key"] = cache_key
-            lens = self._hydrate_result(cached, "<cached>", face_hash, image_sha256, cache_key)
-            return (cached.get("query_image_url", ""), lens, 0.0, 0.0, "cache")
+            # Re-run selection on cached raw matches so code updates (new
+            # abstain policy, new scoring) take effect immediately without
+            # re-charging SerpApi.
+            cached_visual = cached.get("visual_matches") or []
+            cached_kg = cached.get("knowledge_graph")
+            image_url = cached.get("query_image_url", "<cached>")
+            all_visual = [_match_from_visual(i, m, "cached visual match #{}".format(i))
+                          for i, m in enumerate(cached_visual, start=1)]
+            by_domain = {}
+            for m in all_visual:
+                by_domain.setdefault(m.platform, []).append(m)
+            kg_match = self._kg_match(cached_kg)
+            if not all_visual and not kg_match:
+                selected = LensMatch(
+                    rank=None, title="", link="", source="", platform="",
+                    reason="no_visual_matches (cached)",
+                )
+            else:
+                try:
+                    selected, all_visual, by_domain, kg_match = self._select(
+                        cached_visual, cached_kg, policy
+                    )
+                except RuntimeError:
+                    selected = LensMatch(
+                        rank=None, title="", link="", source="", platform="",
+                        reason="no_visual_matches (cached)",
+                    )
+            lens = LensResult(
+                query_image_url=image_url,
+                image_sha256=cached.get("image_sha256") or (image_sha256 or ""),
+                face_hash=cached.get("face_hash") or face_hash or "",
+                policy=cached.get("policy", policy),
+                selected=selected,
+                visual_matches=all_visual,
+                knowledge_graph=kg_match,
+                candidates_by_domain=by_domain,
+                visual_match_count=len(all_visual),
+                cached=True,
+                cache_key=cache_key,
+                cache_hit=True,
+                serpapi_total_time_s=cached.get("serpapi_total_time_s"),
+                lens_ms=0.0,
+                raw_response_at=cached.get("raw_response_at", ""),
+            )
+            return (image_url, lens, 0.0, 0.0, "cache")
 
         # Soft fallback: same face was seen before on a different photo.
         #
@@ -1275,7 +1376,9 @@ class WebSearchEngine:
                 boosted, kg_title=None,
                 other_crop_names=(real_names1 | real_names2),
             )
-            strong = (meta["votes"] >= 2) or meta["has_wiki"] or meta["consensus"]
+            # Same abstain policy as single-crop: a lone Wikipedia page with 1
+            # vote and no consensus must NOT win. Require 2+ votes OR consensus.
+            strong = (meta["votes"] >= 2) or meta["consensus"]
             if not strong:
                 chosen = LensMatch(
                     rank=None, title="No confident identification",
