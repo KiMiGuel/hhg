@@ -241,6 +241,19 @@ class FaceEngine:
         except Exception:
             pass  # best-effort; never fail Stage 1
 
+        # Tight 10%-padded crop for the second pass of multi-crop consensus.
+        try:
+            self._write_tight_crop(image, (x, y, w, h))
+        except Exception:
+            pass  # best-effort
+
+        # Enhanced version of the wide-context crop (upscale + CLAHE + unsharp).
+        # This is what Stage 2 uploads by default for the best first-run accuracy.
+        try:
+            self.enhance_for_lens()
+        except Exception:
+            pass  # best-effort
+
         return output_crop_path, face_hash, (x, y, w, h), confidence, quality
 
     def _write_lens_input(self, image_bgr, bbox, output_path="temp/lens_input.jpg", long_edge=1024, jpeg_quality=95, context_ratio=0.60):
@@ -262,6 +275,64 @@ class FaceEngine:
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
         cv2.imwrite(output_path, cropped, [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)])
+
+    def _write_tight_crop(self, image_bgr, bbox, output_path="temp/lens_input_tight.jpg", long_edge=512, jpeg_quality=98, pad_ratio=0.10):
+        """Tight 10%-padded crop of just the face. Used for the second pass of
+        the multi-crop consensus: a different framing often unlocks a better
+        match from Google Lens when the wider-context crop is ambiguous.
+        """
+        x, y, w, h = bbox
+        ih, iw = image_bgr.shape[:2]
+        pad = int(max(w, h) * pad_ratio)
+        x1 = max(0, x - pad); y1 = max(0, y - pad)
+        x2 = min(iw, x + w + pad); y2 = min(ih, y + h + pad)
+        cropped = image_bgr[y1:y2, x1:x2]
+        ch, cw = cropped.shape[:2]
+        if max(ch, cw) > long_edge:
+            scale = long_edge / float(max(ch, cw))
+            cropped = cv2.resize(cropped, (max(1, int(round(cw * scale))), max(1, int(round(ch * scale)))), interpolation=cv2.INTER_AREA)
+        out_dir = os.path.dirname(output_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        cv2.imwrite(output_path, cropped, [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)])
+
+    def enhance_for_lens(self, input_path="temp/lens_input.jpg", output_path="temp/lens_input_enhanced.jpg",
+                          upscale=2, jpeg_quality=98):
+        """Enhance the Lens input for better reverse-image-search matches on
+        noisy webcam photos. Steps:
+          1. Bicubic upscale (2x) so a 256x256 face becomes 512x512.
+          2. CLAHE on the Y (luma) channel to normalize harsh lighting.
+          3. Unsharp mask (amount=1.5, radius=2) to recover edges lost to JPEG.
+        Falls back gracefully (returns False) on any error.
+        """
+        try:
+            img = cv2.imread(input_path, cv2.IMREAD_COLOR)
+            if img is None or img.size == 0:
+                return False
+            h, w = img.shape[:2]
+            if upscale and upscale != 1.0:
+                img = cv2.resize(img, (int(w * upscale), int(h * upscale)), interpolation=cv2.INTER_CUBIC)
+            # CLAHE on luma
+            try:
+                ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                ycrcb[..., 0] = clahe.apply(ycrcb[..., 0])
+                img = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+            except Exception:
+                pass
+            # Unsharp mask: sharp = 1.5*orig - 0.5*blur (amount=1.5)
+            try:
+                blur = cv2.GaussianBlur(img, (0, 0), sigmaX=2.0)
+                img = cv2.addWeighted(img, 1.5, blur, -0.5, 0)
+            except Exception:
+                pass
+            out_dir = os.path.dirname(output_path)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            cv2.imwrite(output_path, img, [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)])
+            return True
+        except Exception:
+            return False
     @staticmethod
     def cosine_similarity(embedding_a: np.ndarray, embedding_b: np.ndarray) -> float:
         """Cosine similarity between two SFace embeddings (range -1..1)."""

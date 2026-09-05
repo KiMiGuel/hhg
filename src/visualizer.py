@@ -117,12 +117,51 @@ def show_face_detection(input_image_path: str, bbox: tuple, auto_close_ms: int =
 
 # ---------------------------------------------------------------- identity
 def _person_name_from_lens(lens_result):
+    """Return the best human-readable person/entity name for the face.
+
+    Priority: 1) KG title (if it looks like a name, not a Wikipedia subtitle),
+              2) Selected match title (parsed for a personal-name pattern),
+              3) URL path (First_Last for Wikipedia links),
+              4) empty string.
+    """
+    import re as _re
+    from urllib.parse import urlparse, unquote
+
+    def _is_real_name(s):
+        if not s:
+            return False
+        low = s.lower()
+        if 'wikipedia' in low and ('encyclopedia' in low or 'the free' in low):
+            return False
+        return sum(1 for p in s.split() if p[:1].isupper()) >= 2
+
     try:
         kg = getattr(lens_result, 'knowledge_graph', None)
-        if kg is not None and getattr(kg, 'title', None):
-            t = kg.title.strip()
-            if t and t.lower() not in ('n/a', 'unknown', 'knowledge graph', ''):
+        if kg is not None:
+            t = (getattr(kg, 'title', None) or '').strip()
+            if _is_real_name(t):
                 return t
+    except Exception:
+        pass
+    try:
+        sel = getattr(lens_result, 'selected', None)
+        if sel is None:
+            return ''
+        for raw in (getattr(sel, 'title', None), getattr(sel, 'link', None)):
+            if not raw:
+                continue
+            rs = str(raw)
+            m = _re.match(r"^([A-Z][a-zA-Z\-\']{1,30}(?:[ ][A-Z][a-zA-Z\-\']{1,30}){1,3})", rs)
+            if m:
+                return m.group(1)
+            if '/wiki/' in rs:
+                try:
+                    tail = unquote(urlparse(rs).path).rsplit('/', 1)[-1].replace('_', ' ')
+                    npp = [pp for pp in tail.split() if pp and pp[:1].isupper() and pp[1:].islower()]
+                    if 2 <= len(npp) <= 4:
+                        return ' '.join(npp)
+                except Exception:
+                    pass
     except Exception:
         pass
     return ''

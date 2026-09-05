@@ -35,7 +35,7 @@ from src.visualizer import (
     render_verification_panel,
     show_face_detection,
 )
-from src.web_search import WebSearchEngine
+from src.web_search import SearchDiagnostics, WebSearchEngine
 
 console = Console()
 
@@ -176,30 +176,94 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         # ---- compute a stable image-identity hash so the SerpApi cache is
         # keyed on the source image bytes, not on the ephemeral catbox URL.
         import hashlib as _hashlib
-        # Prefer the lens-friendly context image (60% padded, 1024 long edge, q=95)
-        # written by FaceEngine._write_lens_input. Fall back to the tight 15%
-        # crop if the lens-friendly file is missing (e.g. demo mode or older run).
-        lens_input_path = "temp/lens_input.jpg"
-        src_path = lens_input_path if os.path.exists(lens_input_path) else crop_path
+        # The source image on disk is stable. Hashing the temp crop would
+        # change every run (because FaceEngine re-encodes JPEG + applies
+        # per-run bbox jitter), busting the cache.
         try:
-            with open(src_path, "rb") as _f:
-                _image_bytes = _f.read()
-            image_sha256 = _hashlib.sha256(_image_bytes).hexdigest()
+            with open(input_image_path, "rb") as _f:
+                _src_bytes_for_hash = _f.read()
+            image_sha256 = _hashlib.sha256(_src_bytes_for_hash).hexdigest()
         except OSError:
             image_sha256 = ""
 
+        # Read the two crops written by FaceEngine.process_image:
+        #   temp/lens_input_enhanced.jpg  -- 60% pad + upscale + CLAHE + unsharp
+        #   temp/lens_input_tight.jpg     -- 10% pad, just the face
+        # Multi-crop consensus gives a much stronger first-run signal on
+        # noisy webcam inputs.
+        enhanced_path = "temp/lens_input_enhanced.jpg"
+        tight_path = "temp/lens_input_tight.jpg"
+        try:
+            with open(enhanced_path, "rb") as _f:
+                _enhanced_bytes = _f.read()
+        except OSError:
+            _enhanced_bytes = b""
+        try:
+            with open(tight_path, "rb") as _f:
+                _tight_bytes = _f.read()
+        except OSError:
+            _tight_bytes = b""
+        if not _enhanced_bytes:
+            # Fall back to the original lens_input.jpg if enhancement didn't run
+            try:
+                with open("temp/lens_input.jpg", "rb") as _f:
+                    _enhanced_bytes = _f.read()
+            except OSError:
+                _enhanced_bytes = _src_bytes_for_hash
+        if not _tight_bytes:
+            _tight_bytes = _enhanced_bytes
+
+        # Use a "consensus" face_hash so the two crops get distinct cache
+        # entries; cache key for the consensus result uses the bare face_hash.
+        consensus_face_hash = (face_hash or "") + ":consensus"
+
         search_engine = WebSearchEngine(SERPAPI_KEY)
-        # upload_and_search is cache-aware: if (face_hash, image_sha256) is in
-        # the on-disk JSON cache, the upload and the SerpApi call are skipped
-        # entirely and we return the cached LensResult in ~5 ms.
-        with console.status("[bold green]Uploading face crop + querying Google Lens..."):
-            public_image_url, lens_result, upload_ms, lens_ms, host = (
-                search_engine.upload_and_search(
-                    _image_bytes if _image_bytes else b"",
-                    face_hash=face_hash,
-                    policy="social",
-                )
+        # Try the (source-image, consensus) cache first.
+        _consensus_key = _hashlib.sha256(
+            f"consensus:{image_sha256}".encode("utf-8")
+        ).hexdigest()[:24]
+        _consensus_cached = search_engine._get_cached(_consensus_key)
+        if _consensus_cached:
+            _consensus_cached["cache_key"] = _consensus_key
+            lens_result = search_engine._hydrate_result(
+                _consensus_cached, "<cached>", face_hash, image_sha256, _consensus_key,
             )
+            public_image_url = _consensus_cached.get("query_image_url", "")
+            upload_ms = 0.0
+            lens_ms = 0.0
+            host = "consensus_cache"
+            search_engine.last_diagnostics = SearchDiagnostics(
+                visual_match_count=int(_consensus_cached.get("visual_match_count", 0)),
+                selected_rank=(_consensus_cached.get("selected") or {}).get("rank"),
+                selected_reason="consensus cache hit",
+                elapsed_seconds=0.0,
+                cached=True,
+            )
+        elif _enhanced_bytes and _tight_bytes and _enhanced_bytes != _tight_bytes:
+            # Two distinct crops available -> run multi-crop consensus.
+            with console.status("[bold green]Uploading 2 face crops + querying Google Lens (consensus)..."):
+                public_image_url, lens_result, upload_ms, lens_ms, host = (
+                    search_engine.search_with_consensus(
+                        _enhanced_bytes, _tight_bytes,
+                        face_hash=face_hash,
+                        policy="social",
+                    )
+                )
+            # Cache the consensus result under a stable key tied to the source
+            try:
+                search_engine._put_cached(_consensus_key, lens_result.to_dict())
+            except Exception:
+                pass
+        else:
+            # Fall back to the single-crop path.
+            with console.status("[bold green]Uploading face crop + querying Google Lens..."):
+                public_image_url, lens_result, upload_ms, lens_ms, host = (
+                    search_engine.upload_and_search(
+                        _enhanced_bytes if _enhanced_bytes else _src_bytes_for_hash,
+                        face_hash=face_hash,
+                        policy="social",
+                    )
+                )
         console.print(f"[green]✔[/green] Ephemeral Image URL: [dim]{public_image_url}[/dim]")
 
         match_data = lens_result  # backward-compat: dict-like access for Stage 3
