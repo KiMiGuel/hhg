@@ -1,7 +1,14 @@
 """Pre-flight banner + post-flight result printer for the one-click .bat."""
 from __future__ import annotations
-import argparse, json, sys
+import argparse
+import json
+import os
+import sys
 from pathlib import Path
+# Make src/ importable when this script is run as scripts/print_banner.py
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -70,7 +77,8 @@ def start_block(input_pick, chain_pick):
     console.print("[bold cyan]" + bar + "[/bold cyan]")
     console.print()
 def result(report_path):
-    from src.visualizer import LensResult, LensMatch, render_final_summary, _person_name_from_lens
+    from src.web_search import LensResult, LensMatch
+    from src.visualizer import render_final_summary, _person_name_from_lens
     p = Path(report_path)
     if not p.exists():
         console.print("[red]No report at " + str(report_path) + "[/red]")

@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 REM ============================================================
 REM   HHG  ::  FACE IDENTITY + BLOCKCHAIN VERIFICATION
 REM   One-click LIVE pipeline (real SerpApi + local Anvil).
@@ -11,66 +11,71 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 cd /d "%~dp0"
 set PYTHONIOENCODING=utf-8
-
-REM ---- Use UTF-8 so the banner's Unicode block art renders correctly ----
 chcp 65001 >nul 2>&1
 
-REM ---- Print the rich banner (with the menu + choice summary) ----
-if not defined HHG_NONINTERACTIVE (
-    venv\Scripts\python.exe scripts\print_banner.py --mode banner --input-pick 1 --chain-pick F
-    set /p "INPUT_MODE=Choose input [1-4, default 1]: "
-    if not defined INPUT_MODE set "INPUT_MODE=1"
-    if "%INPUT_MODE%"=="" set "INPUT_MODE=1"
-    if "%INPUT_MODE%"=="4" goto :user_cancel
-    if "%INPUT_MODE%"=="1" goto :pick_sample
-    if "%INPUT_MODE%"=="2" goto :pick_webcam
-    if "%INPUT_MODE%"=="3" goto :pick_other
-    echo Invalid choice: %INPUT_MODE%
-    pause
-    endlocal & exit /b 1
-    :pick_sample
-    if not exist "data\sample_face.jpg" goto :no_sample
-    set "INPUT_TARGET=data\sample_face.jpg"
-    set "INPUT_FLAG=--image"
-    goto :ask_chain_mode
-    :pick_webcam
-    set "INPUT_TARGET=data\captured_face.jpg"
-    set "INPUT_FLAG=--camera"
-    goto :ask_chain_mode
-    :pick_other
-    set "INPUT_TARGET="
-    set /p "INPUT_TARGET=Path to image: "
-    if not exist "%INPUT_TARGET%" (
-        color 0C
-        echo.
-        echo [ERROR] Image not found: %INPUT_TARGET%
-        pause
-        endlocal & exit /b 1
-    )
-    set "INPUT_FLAG=--image"
-    goto :ask_chain_mode
-    :no_sample
-    color 0C
-    echo.
-    echo [ERROR] data\sample_face.jpg not found.
-    pause
-    endlocal & exit /b 1
-    :user_cancel
-    echo Cancelled.
-    pause
-    endlocal & exit /b 0
-    :ask_chain_mode
-    set /p "CHAIN_MODE=Chain mode [F/R, default F]: "
-    if not defined CHAIN_MODE set "CHAIN_MODE=F"
-    if /I "%CHAIN_MODE%"=="F" set "CHAIN_FRESH=1"
-    if /I "%CHAIN_MODE%"=="R" set "CHAIN_FRESH=0"
-    if /I not "%CHAIN_MODE%"=="F" if /I not "%CHAIN_MODE%"=="R" set "CHAIN_FRESH=1"
-    REM re-print banner with the user's actual picks
-    venv\Scripts\python.exe scripts\print_banner.py --mode banner --input-pick "%INPUT_MODE%" --chain-pick "%CHAIN_MODE%"
-    goto :preflight
-)
+if defined HHG_NONINTERACTIVE goto :noninteractive
 
-REM ---- HHG_NONINTERACTIVE=1 path: no prompts, defaults ----
+REM ---- Interactive: print the rich banner, then prompt ----
+venv\Scripts\python.exe scripts\print_banner.py --mode banner --input-pick 1 --chain-pick F
+set /p "INPUT_MODE=Choose input [1-4, default 1]: "
+if not defined INPUT_MODE set "INPUT_MODE=1"
+if "%INPUT_MODE%"=="" set "INPUT_MODE=1"
+if "%INPUT_MODE%"=="4" goto :user_cancel
+if "%INPUT_MODE%"=="1" goto :pick_sample
+if "%INPUT_MODE%"=="2" goto :pick_webcam
+if "%INPUT_MODE%"=="3" goto :pick_other
+echo Invalid choice: "%INPUT_MODE%"
+pause
+endlocal & exit /b 1
+
+:pick_sample
+if not exist "data\sample_face.jpg" goto :no_sample
+set "INPUT_TARGET=data\sample_face.jpg"
+set "INPUT_FLAG=--image"
+goto :ask_chain_mode
+
+:pick_webcam
+set "INPUT_TARGET=data\captured_face.jpg"
+set "INPUT_FLAG=--camera"
+goto :ask_chain_mode
+
+:pick_other
+set "INPUT_TARGET="
+set /p "INPUT_TARGET=Path to image: "
+if not exist "%INPUT_TARGET%" goto :no_image
+set "INPUT_FLAG=--image"
+goto :ask_chain_mode
+
+:no_image
+color 0C
+echo.
+echo [ERROR] Image not found: %INPUT_TARGET%
+pause
+endlocal & exit /b 1
+
+:no_sample
+color 0C
+echo.
+echo [ERROR] data\sample_face.jpg not found.
+pause
+endlocal & exit /b 1
+
+:user_cancel
+echo Cancelled.
+pause
+endlocal & exit /b 0
+
+:ask_chain_mode
+set /p "CHAIN_MODE=Chain mode [F/R, default F]: "
+if not defined CHAIN_MODE set "CHAIN_MODE=F"
+if /I "%CHAIN_MODE%"=="F" set "CHAIN_FRESH=1"
+if /I "%CHAIN_MODE%"=="R" set "CHAIN_FRESH=0"
+if /I not "%CHAIN_MODE%"=="F" if /I not "%CHAIN_MODE%"=="R" set "CHAIN_FRESH=1"
+REM re-print banner with the user's actual picks
+venv\Scripts\python.exe scripts\print_banner.py --mode banner --input-pick "%INPUT_MODE%" --chain-pick "%CHAIN_MODE%"
+goto :preflight
+
+:noninteractive
 set "INPUT_MODE=1"
 set "INPUT_TARGET=data\sample_face.jpg"
 set "INPUT_FLAG=--image"
