@@ -235,8 +235,33 @@ class FaceEngine:
         # Deterministic biometric hash over the normalized embedding bytes (128 x 4B)
         face_hash = "0x" + hashlib.sha256(normalized_embedding.tobytes()).hexdigest()
 
+        # Lens-friendly context image: 60% padded crop, resized to 1024 long edge, JPEG q=95.
+        try:
+            self._write_lens_input(image, (x, y, w, h))
+        except Exception:
+            pass  # best-effort; never fail Stage 1
+
         return output_crop_path, face_hash, (x, y, w, h), confidence, quality
 
+    def _write_lens_input(self, image_bgr, bbox, output_path="temp/lens_input.jpg", long_edge=1024, jpeg_quality=95, context_ratio=0.60):
+        x, y, w, h = bbox
+        ih, iw = image_bgr.shape[:2]
+        target = int(min(ih, iw) * context_ratio)
+        cur = max(w, h)
+        pad = max(0, (target - cur) // 2)
+        x1 = max(0, x - pad); y1 = max(0, y - pad)
+        x2 = min(iw, x + w + pad); y2 = min(ih, y + h + pad)
+        if (x2 - x1) >= int(iw * 0.95) and (y2 - y1) >= int(ih * 0.95):
+            x1, y1, x2, y2 = 0, 0, iw, ih
+        cropped = image_bgr[y1:y2, x1:x2]
+        ch, cw = cropped.shape[:2]
+        if max(ch, cw) > long_edge:
+            scale = long_edge / float(max(ch, cw))
+            cropped = cv2.resize(cropped, (max(1, int(round(cw * scale))), max(1, int(round(ch * scale)))), interpolation=cv2.INTER_AREA)
+        out_dir = os.path.dirname(output_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        cv2.imwrite(output_path, cropped, [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)])
     @staticmethod
     def cosine_similarity(embedding_a: np.ndarray, embedding_b: np.ndarray) -> float:
         """Cosine similarity between two SFace embeddings (range -1..1)."""

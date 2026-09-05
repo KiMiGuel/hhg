@@ -77,8 +77,8 @@ def start_block(input_pick, chain_pick):
     console.print("[bold cyan]" + bar + "[/bold cyan]")
     console.print()
 def result(report_path):
-    from src.web_search import LensResult, LensMatch
-    from src.visualizer import render_final_summary, _person_name_from_lens
+    from src.web_search import LensResult, LensMatch, _person_name_from_lens, _truncate_url
+    from src.visualizer import render_final_summary
     p = Path(report_path)
     if not p.exists():
         console.print("[red]No report at " + str(report_path) + "[/red]")

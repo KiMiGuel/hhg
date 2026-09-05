@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -175,8 +176,13 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         # ---- compute a stable image-identity hash so the SerpApi cache is
         # keyed on the source image bytes, not on the ephemeral catbox URL.
         import hashlib as _hashlib
+        # Prefer the lens-friendly context image (60% padded, 1024 long edge, q=95)
+        # written by FaceEngine._write_lens_input. Fall back to the tight 15%
+        # crop if the lens-friendly file is missing (e.g. demo mode or older run).
+        lens_input_path = "temp/lens_input.jpg"
+        src_path = lens_input_path if os.path.exists(lens_input_path) else crop_path
         try:
-            with open(crop_path, "rb") as _f:
+            with open(src_path, "rb") as _f:
                 _image_bytes = _f.read()
             image_sha256 = _hashlib.sha256(_image_bytes).hexdigest()
         except OSError:

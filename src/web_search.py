@@ -19,6 +19,7 @@ The engine is fully integrated with the pipeline:
 from __future__ import annotations
 
 import hashlib
+import re
 import io
 import json
 import os
@@ -74,6 +75,26 @@ class SearchDiagnostics:
     elapsed_seconds: float
     cached: bool = False
 
+
+def _truncate(s, n):
+    s = str(s) if s is not None else ""
+    return s if len(s) <= n else s[: n - 1] + chr(0x2026)
+
+def _truncate_url(url, n=70):
+    if not url: return "(no URL)"
+    if len(url) <= n: return url
+    h = n // 2 - 1; t = n // 2 + 1
+    return url[:h] + chr(0x2026) + url[-t:]
+
+def _person_name_from_lens(lens_result):
+    try:
+        kg = getattr(lens_result, "knowledge_graph", None)
+        if kg is not None and getattr(kg, "title", None):
+            t = kg.title.strip()
+            if t and t.lower() not in ("n/a", "unknown", "knowledge graph", ""):
+                return t
+    except Exception: pass
+    return ""
 
 @dataclass
 class LensMatch:
@@ -152,6 +173,36 @@ class LensResult:
         }
         return d
 
+
+def _norm_tokens(s):
+    return [w for w in re.split(r"\\W+\\", (s or "").lower()) if len(w) >= 3]
+
+def _title_contains_kg(title, kg_title):
+    if not kg_title or not title: return False
+    return any(w in _norm_tokens(title) for w in _norm_tokens(kg_title))
+
+def _match_field(m, key, default=""):
+    if isinstance(m, dict):
+        return m.get(key, default) or default
+    if hasattr(m, "get"):
+        return m.get(key, default) or default
+    return getattr(m, key, default) or default
+
+def _score_visual_match(match, kg_title=None):
+    link = _match_field(match, "link").lower()
+    title = _match_field(match, "title")
+    score = 0; reasons = []
+    if "wikipedia.org" in link or ".edu" in link or ".gov" in link: score += 90; reasons.append("wikipedia+90")
+    if any(tld in link for tld in OFFICIAL_TLDS_HINT): score += 20; reasons.append("official_tld+20")
+    if any(p in link for p in SOCIAL_PLATFORMS):
+        score += 70; reasons.append("social+70")
+        if "linkedin.com" in link: score += 15
+        if "facebook.com" in link: score += 5
+        if "instagram.com" in link: score += 3
+        if "youtube.com" in link: score -= 5
+    if kg_title and _title_contains_kg(title, kg_title): score += 50
+    if re.match(r"^[A-Z][a-z]+ [A-Z][a-z]+", title) and any(kw in title.lower() for kw in ("ceo","founder","actor","singer","director","president","scientist")): score += 10
+    return score, "+".join(reasons) if reasons else "base"
 
 def _classify_link(link: str) -> str:
     """Return 'social' / 'official' / 'news' / 'web' for a URL."""
@@ -304,9 +355,10 @@ class WebSearchEngine:
             "api_key": self.serpapi_key,
             "no_cache": "true",
         }
-        # Trim the response (and the server-side processing) by asking Lens for
-        # only the social/news/official slice when that's what we want.
-        if policy in ("social", "news", "official"):
+        # We do NOT pass source=social by default anymore: asking Lens for the social
+        # slice drops the canonical Wikipedia/official profile match. The selection
+        # policy (social / official / news / top) is applied in score_visual_match().
+        if policy in ("news", "official"):
             params["source"] = policy
 
         last_error: Exception | None = None
@@ -330,13 +382,33 @@ class WebSearchEngine:
         raise RuntimeError(f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}")
 
     # ----------------------------------------------------------- selection
+    def _kg_match(self, knowledge_graph_raw):
+        if isinstance(knowledge_graph_raw, dict) and knowledge_graph_raw.get("link"):
+            return LensMatch(rank=None, title=knowledge_graph_raw.get("title", "Knowledge Graph"), link=knowledge_graph_raw["link"], source="Google Knowledge Graph", platform=_classify_link(knowledge_graph_raw["link"]) or "web", reason="knowledge_graph_entity")
+        if isinstance(knowledge_graph_raw, list) and knowledge_graph_raw and knowledge_graph_raw[0].get("link"):
+            raw = knowledge_graph_raw[0]
+            return LensMatch(rank=None, title=raw.get("title", "Knowledge Graph"), link=raw["link"], source="Google Knowledge Graph", platform=_classify_link(raw["link"]) or "web", reason="knowledge_graph_entity")
+        return None
+
+    def _policy_multiplier(self, policy):
+        if policy == "social":
+            return {"youtube.com": 0.4, "reddit.com": 0.5, "news": 0.6, "facebook.com": 0.9, "twitter.com": 0.9, "x.com": 0.9, "instagram.com": 1.0, "linkedin.com": 1.1, "wikipedia.org": 1.3, "official": 1.4}
+        if policy == "official":
+            return {"wikipedia.org": 2.0, "official": 2.0, "news": 0.5, "youtube.com": 0.2, "reddit.com": 0.2, "facebook.com": 0.3, "twitter.com": 0.3, "x.com": 0.3, "instagram.com": 0.3, "linkedin.com": 0.3}
+        if policy == "news":
+            return {"news": 2.0, "wikipedia.org": 1.5, "official": 1.5, "youtube.com": 0.2, "reddit.com": 0.2, "facebook.com": 0.3, "twitter.com": 0.3, "x.com": 0.3, "instagram.com": 0.3, "linkedin.com": 0.3}
+        return {}
+
     def _select(
         self,
         visual_matches: list[dict[str, Any]],
         knowledge_graph_raw: Any,
         policy: str,
     ) -> tuple[LensMatch, list[LensMatch], dict[str, list[LensMatch]], LensMatch | None]:
-        """Apply the policy and return (selected, all_visual, by_domain, kg)."""
+        """Score every visual match (and KG entity) and pick the highest.
+        KG is given a near-infinite score so it always wins unless the user
+        explicitly asks for a domain via policy multiplier.
+        """
         all_visual: list[LensMatch] = []
         for i, m in enumerate(visual_matches or [], start=1):
             all_visual.append(_match_from_visual(i, m, f"visual match #{i}"))
@@ -344,65 +416,29 @@ class WebSearchEngine:
         for m in all_visual:
             by_domain.setdefault(m.platform, []).append(m)
 
-        kg_match: LensMatch | None = None
-        if isinstance(knowledge_graph_raw, dict) and knowledge_graph_raw.get("link"):
-            kg_match = LensMatch(
-                rank=None,
-                title=knowledge_graph_raw.get("title", "Knowledge Graph"),
-                link=knowledge_graph_raw["link"],
-                source="Google Knowledge Graph",
-                platform=_classify_link(knowledge_graph_raw["link"]) or "web",
-                reason="knowledge graph entity",
-            )
-        elif (
-            isinstance(knowledge_graph_raw, list)
-            and knowledge_graph_raw
-            and knowledge_graph_raw[0].get("link")
-        ):
-            raw = knowledge_graph_raw[0]
-            kg_match = LensMatch(
-                rank=None, title=raw.get("title", "Knowledge Graph"),
-                link=raw["link"], source="Google Knowledge Graph",
-                platform=_classify_link(raw["link"]) or "web",
-                reason="knowledge graph entity",
-            )
+        kg_match = self._kg_match(knowledge_graph_raw)
+        kg_title = kg_match.title if kg_match else None
+        if not all_visual and not kg_match:
+            raise RuntimeError("No visual matches found for this face. Try a clearer, front-facing image of a person with public web/social presence.")
 
-        if policy == "social":
-            chosen = next((m for m in all_visual if m.platform in SOCIAL_PLATFORMS), None)
-            if chosen:
-                return (
-                    LensMatch(
-                        rank=chosen.rank, title=chosen.title, link=chosen.link,
-                        source=chosen.source, platform=chosen.platform,
-                        reason=f"first social-domain match ({chosen.platform})",
-                    ),
-                    all_visual, by_domain, kg_match,
-                )
-            if kg_match:
-                return (
-                    LensMatch(
-                        rank=None, title=kg_match.title, link=kg_match.link,
-                        source=kg_match.source, platform=kg_match.platform,
-                        reason="knowledge graph fallback (no social match)",
-                    ),
-                    all_visual, by_domain, kg_match,
-                )
-            if all_visual:
-                top = all_visual[0]
-                return (
-                    LensMatch(
-                        rank=top.rank, title=top.title, link=top.link,
-                        source=top.source, platform=top.platform,
-                        reason="top visual match (no social-domain match found)",
-                    ),
-                    all_visual, by_domain, kg_match,
-                )
-            raise RuntimeError(
-                "No visual matches found for this face. Try a clearer, front-facing image "
-                "of a person with public web/social presence."
-            )
-        return self._select_tail(all_visual, by_domain, kg_match, policy)
-
+        policy_mod = self._policy_multiplier(policy)
+        candidates: list[tuple] = []
+        for m in all_visual:
+            s, r = _score_visual_match(m, kg_title)
+            s = int(s * policy_mod.get(m.platform, 1.0))
+            candidates.append((s, m, r))
+        if kg_match:
+            candidates.append((9999, kg_match, "knowledge_graph_entity"))
+        if not candidates:
+            raise RuntimeError("No visual matches found for this face. Try a clearer, front-facing image of a person with public web/social presence.")
+        candidates.sort(key=lambda t: t[0], reverse=True)
+        best_score, best_raw, reason = candidates[0]
+        if best_raw is kg_match:
+            chosen = LensMatch(rank=None, title=kg_match.title, link=kg_match.link, source=kg_match.source, platform=kg_match.platform, reason="knowledge_graph_entity")
+        else:
+            m = best_raw
+            chosen = LensMatch(rank=m.rank, title=m.title, link=m.link, source=m.source, platform=m.platform, reason=f"scored (score={best_score}, {reason})")
+        return chosen, all_visual, by_domain, kg_match
     def _select_tail(
         self,
         all_visual: list[LensMatch],
