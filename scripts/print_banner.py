@@ -137,12 +137,35 @@ def result(report_path):
     )
     person = _person_name_from_lens(lens)
     title = sel.title or "Unknown"
+    # Compute a simple confidence badge so the user knows how much to trust
+    # the displayed identity. HIGH = Lens gave us a real anchor (KG or
+    # consensus). LOW = the name is our best guess from unrelated matches.
+    # ABSTAIN = the pipeline declined to name anyone.
+    is_abstain = (sel.platform == "abstain") or title.startswith("No confident")
+    has_kg = (stage2.get("knowledge_graph") or {}).get("title")
+    has_consensus = "consensus=yes" in (sel.reason or "")
+    if is_abstain:
+        confidence = "ABSTAIN"
+        conf_color = "yellow"
+        conf_note = "no high-confidence match found in Lens results"
+    elif has_kg or has_consensus:
+        confidence = "HIGH"
+        conf_color = "green"
+        conf_note = "Lens Knowledge Graph" if has_kg else "multi-crop consensus hit"
+    else:
+        confidence = "LOW"
+        conf_color = "red"
+        conf_note = "best visual-match guess; Lens returned no actual matches for this face"
     console.print()
     console.rule("[bold bright_cyan]" + chr(0x2605) + "  PIPELINE RESULT  " + chr(0x2605) + "[/bold bright_cyan]", style="bright_cyan")
+    console.print("  [bold white]Confidence:[/bold white] [bold " + conf_color + "]" + confidence + "[/bold " + conf_color + "] [dim](" + conf_note + ")[/dim]")
     if person:
         console.print("  [bold white]Identity (Google Knowledge Graph):[/bold white] [bold bright_magenta]" + person + "[/bold bright_magenta]")
-    console.print("  [bold white]Match title:[/bold white] [cyan]" + (title or "")[:80] + "[/cyan]")
-    if sel.link:
+    if is_abstain:
+        console.print("  [bold white]Best guess:[/bold white] [dim]" + (title or "")[:80] + "[/dim] [yellow](unverified)[/yellow]")
+    else:
+        console.print("  [bold white]Match title:[/bold white] [cyan]" + (title or "")[:80] + "[/cyan]")
+    if sel.link and not is_abstain:
         console.print("  [bold white]Source URL:[/bold white] [link=" + sel.link + "][blue underline]" + sel.link[:90] + "[/blue underline][/link]")
     console.print("  [bold white]Platform:[/bold white] [yellow]" + (sel.platform or "web") + "[/yellow]")
     console.print()

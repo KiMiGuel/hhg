@@ -222,6 +222,26 @@ def render_final_summary(lens_result, face_hash, on_chain_fingerprint, tx_hash, 
     platform = getattr(sel, 'platform', 'web') if sel else 'web'
     link = getattr(sel, 'link', '') if sel else ''
     person = _person_name_from_lens(lens_result)
+    # Compute a simple confidence badge so the user knows how much to trust
+    # the displayed identity. HIGH = Lens gave us a real anchor (KG or
+    # consensus). LOW = the name is our best guess from unrelated matches.
+    # ABSTAIN = the pipeline declined to name anyone.
+    is_abstain = platform == 'abstain' or (title or '').startswith('No confident')
+    has_kg = getattr(lens_result, 'knowledge_graph', None) is not None
+    sel_reason = getattr(sel, 'reason', '') if sel else ''
+    has_consensus = 'consensus=yes' in (sel_reason or '')
+    if is_abstain:
+        confidence = 'ABSTAIN'
+        conf_color = 'yellow'
+        conf_note = 'no high-confidence match found in Lens results'
+    elif has_kg or has_consensus:
+        confidence = 'HIGH'
+        conf_color = 'green'
+        conf_note = 'Lens Knowledge Graph' if has_kg else 'multi-crop consensus hit'
+    else:
+        confidence = 'LOW'
+        conf_color = 'red'
+        conf_note = 'best visual-match guess; Lens returned no actual matches for this face'
     if not verification_passed: border = 'red'; status_color = 'red'
     elif tamper_detected: border = 'yellow'; status_color = 'yellow'
     else: border = 'bright_green'; status_color = 'green'
@@ -233,7 +253,12 @@ def render_final_summary(lens_result, face_hash, on_chain_fingerprint, tx_hash, 
         for ln in body_text.split(chr(10)):
             t.append(ln + chr(10))
         return t
-    identity_body = '  Person / Entity : [bold magenta]' + (person or title) + '[/bold magenta]' + chr(10) + '  Source title    : ' + _truncate(title, 50) + chr(10) + '  Platform        : ' + platform + chr(10) + '  Link            : [link=' + link + ']' + _truncate_url(link, 60) + '[/link]' + chr(10)
+    # First line of the identity column is a confidence badge.
+    identity_body = '  Confidence      : [bold ' + conf_color + ']' + confidence + '[/bold ' + conf_color + '] [dim](' + conf_note + ')[/dim]' + chr(10)
+    if is_abstain:
+        identity_body += '  Person / Entity : [bold yellow]' + (person or title) + '[/bold yellow] [dim](unverified)[/dim]' + chr(10) + '  Source title    : ' + _truncate(title, 50) + chr(10) + '  Platform        : ' + platform + chr(10) + '  Link            : [dim]no link (abstained)[/dim]' + chr(10)
+    else:
+        identity_body += '  Person / Entity : [bold magenta]' + (person or title) + '[/bold magenta]' + chr(10) + '  Source title    : ' + _truncate(title, 50) + chr(10) + '  Platform        : ' + platform + chr(10) + '  Link            : [link=' + link + ']' + _truncate_url(link, 60) + '[/link]' + chr(10)
     mid_body = '  Face hash       : [cyan]' + _truncate(face_hash, 22) + '[/cyan]' + chr(10) + '  On-chain finger : [cyan]' + _truncate(on_chain_fingerprint, 22) + '[/cyan]' + chr(10)
     if tx_hash: mid_body += '  Tx hash         : [cyan]' + _truncate(tx_hash, 22) + '[/cyan]' + chr(10)
     if block is not None: mid_body += '  Block / Gas     : ' + str(block) + ' / ' + '{:,}'.format(gas) + chr(10)

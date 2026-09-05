@@ -598,8 +598,24 @@ class WebSearchEngine:
             raise RuntimeError("No visual matches found for this face. Try a clearer, front-facing image of a person with public web/social presence.")
         candidates.sort(key=lambda t: t[0], reverse=True)
         best_score, best_raw, reason = candidates[0]
+        # Same abstain policy as search_with_consensus: without a KG anchor
+        # or a high-scoring visual match, prefer to say "we don't know"
+        # rather than naming a random person.
         if best_raw is kg_match:
             chosen = LensMatch(rank=None, title=kg_match.title, link=kg_match.link, source=kg_match.source, platform=kg_match.platform, reason="knowledge_graph_entity")
+        elif best_score < 150 and not kg_match:
+            # No KG and a low visual-match score -> abstain. The user sees
+            # "No confident identification" instead of a confidently-wrong name.
+            chosen = LensMatch(
+                rank=None, title="No confident identification",
+                link="", source="", platform="abstain",
+                reason=(
+                    f"abstain (best_score={best_score}<150, no KG, "
+                    f"rank={best_raw.rank} '{best_raw.title[:50]}' "
+                    f"was the best of {len(all_visual)} visual matches but Lens "
+                    f"returned no actual matches for this face)"
+                ),
+            )
         else:
             m = best_raw
             chosen = LensMatch(rank=m.rank, title=m.title, link=m.link, source=m.source, platform=m.platform, reason=f"scored (score={best_score}, {reason})")
@@ -956,16 +972,30 @@ class WebSearchEngine:
         candidates.sort(key=lambda t: t[0], reverse=True)
 
         best_score, best_raw, reason = candidates[0] if candidates else (0, None, "")
-        abstain = (
-            best_score < 80
-            and "consensus_hit" not in (best_raw.reason or "")
-            and best_raw is not lens1.knowledge_graph
-        )
+        # Abstain when the best match is weak AND we have no strong signal.
+        # A "strong signal" is either:
+        #   (a) Google Knowledge Graph entity (Lens is confident about WHO this is), or
+        #   (b) Consensus hit (the same person appears in BOTH crops), or
+        #   (c) A high-scoring Wikipedia/IMDb-style anchor (>= 150).
+        # Without any of these, a random LinkedIn profile or .edu page can win
+        # with score ~110 just from the platform boost, which is exactly the
+        # failure mode that produced the Mr. Indian Hacker → Krishna
+        # Coimbatore Balram and TechWiser → Prasad Wagh mis-identifications.
+        has_kg = best_raw is lens1.knowledge_graph
+        has_consensus = "consensus_hit" in (best_raw.reason or "")
+        # Score thresholds: 80 = very low (any Wikipedia+social), 150 = moderate
+        # (Wikipedia + consensus, or a real strong Wikipedia + KG-title match).
+        abstain = (not has_kg) and (not has_consensus) and (best_score < 150)
         if abstain:
             chosen = LensMatch(
                 rank=None, title="No confident identification",
                 link="", source="", platform="abstain",
-                reason=f"abstain (best_score={best_score}<80, no consensus, no KG)",
+                reason=(
+                    f"abstain (best_score={best_score}<150, no consensus, no KG, "
+                    f"rank={best_raw.rank if best_raw else '?'} '{best_raw.title[:50] if best_raw else ''}' "
+                    f"was the best of {len(boosted)} visual matches but Lens returned no "
+                    f"actual matches for this face)"
+                ),
             )
         elif best_raw is lens1.knowledge_graph:
             chosen = LensMatch(
