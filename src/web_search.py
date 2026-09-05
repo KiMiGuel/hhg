@@ -547,6 +547,51 @@ class WebSearchEngine:
         raise RuntimeError(f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}")
 
     # ----------------------------------------------------------- selection
+
+    def _request_serpapi_engine(
+        self,
+        image_url: str,
+        policy: str = "social",
+        extra_params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Like ``_request_serpapi`` but lets the caller pick a different
+        ``engine`` (e.g. ``google_reverse_image`` or ``bing_visual_search``)
+        and override individual params. Used by the cascade in
+        ``search_face_on_web`` to broaden search coverage when the default
+        Google Lens engine returns no matches."""
+        if not self.serpapi_key:
+            raise ValueError("SERPAPI_KEY is not set. Get a free key at https://serpapi.com")
+
+        params: dict[str, Any] = {
+            "url": image_url,
+            "api_key": self.serpapi_key,
+            "no_cache": "true",
+        }
+        params.update(extra_params or {})
+        # Re-apply the policy slice unless the engine already pinned one.
+        if policy in ("news", "official") and "source" not in params:
+            params["source"] = policy
+
+        last_error: Exception | None = None
+        for attempt in range(1, self.retries + 2):
+            try:
+                resp = requests.get(SERPAPI_SEARCH_URL, params=params, timeout=self.timeout)
+                if resp.status_code in (429, 500, 502, 503, 504):
+                    raise RuntimeError(f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}")
+                if resp.status_code != 200:
+                    raise RuntimeError(f"SerpApi HTTP {resp.status_code}: {resp.text[:500]}")
+                data = resp.json()
+                if "error" in data:
+                    raise RuntimeError(f"SerpApi error: {data['error']}")
+                return data
+            except (requests.RequestException, ValueError, RuntimeError) as e:
+                last_error = e
+                if attempt <= self.retries:
+                    time.sleep(SERPAPI_BACKOFF_SECONDS)
+                    continue
+                break
+        raise RuntimeError(f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}")
+
     def _kg_match(self, knowledge_graph_raw):
         if isinstance(knowledge_graph_raw, dict) and knowledge_graph_raw.get("link"):
             return LensMatch(rank=None, title=knowledge_graph_raw.get("title", "Knowledge Graph"), link=knowledge_graph_raw["link"], source="Google Knowledge Graph", platform=_classify_link(knowledge_graph_raw["link"]) or "web", reason="knowledge_graph_entity")
@@ -563,6 +608,111 @@ class WebSearchEngine:
         if policy == "news":
             return {"news": 2.0, "wikipedia.org": 1.5, "official": 1.5, "youtube.com": 0.2, "reddit.com": 0.2, "facebook.com": 0.3, "twitter.com": 0.3, "x.com": 0.3, "instagram.com": 0.3, "linkedin.com": 0.3}
         return {}
+
+    # ----------------------------------------------------------------- voting
+    # Name-voting selection: the right person's name repeats across MANY Lens
+    # matches ("Salman Khan" appeared in 10 of 107 titles) while false
+    # positives are singletons. Voting over the whole result list is far more
+    # robust than picking the single highest-scored match.
+    VOTE_WEIGHT = 8          # per additional match voting for the same name
+    WIKI_MEMBER_WEIGHT = 15  # cluster contains a wikipedia/imdb profile page
+    CONSENSUS_WEIGHT = 25    # name also seen in the other crop's matches
+    KG_TITLE_WEIGHT = 50     # cluster name aligns with the KG entity title
+
+    def _candidate_names(self, matches) -> list[str]:
+        """Ordered unique strict person-names extracted from match titles."""
+        out: list[str] = []
+        seen = set()
+        for m in matches or []:
+            n = self._first_person_name(m)
+            if n and n not in seen:
+                seen.add(n)
+                out.append(n)
+        return out
+
+    def _votes_for(self, name: str, matches) -> int:
+        """Count matches whose title mentions `name` anywhere (word-bounded)."""
+        import re as _re
+        if not name:
+            return 0
+        pat = _re.compile(r"\b" + _re.escape(name) + r"\b", _re.IGNORECASE)
+        votes = 0
+        for m in matches or []:
+            t = (m.title or "")
+            if t and pat.search(t):
+                votes += 1
+        return votes
+
+    def _cluster_members(self, name: str, matches) -> list[LensMatch]:
+        import re as _re
+        pat = _re.compile(r"\b" + _re.escape(name) + r"\b", _re.IGNORECASE)
+        return [m for m in matches or [] if (m.title or "") and pat.search(m.title)]
+
+    def select_by_voting(
+        self,
+        matches: list[LensMatch],
+        kg_title: str | None = None,
+        other_crop_names: set[str] | None = None,
+    ) -> tuple[LensMatch, dict]:
+        """Pick the best match by name-cluster voting.
+
+        Returns (chosen LensMatch, meta dict with votes/has_wiki/consensus/
+        cluster_score) so callers can apply the abstain policy.
+        """
+        if not matches:
+            raise RuntimeError("No visual matches found for this face.")
+        candidates = self._candidate_names(matches)
+        if not candidates:
+            best = max(matches, key=lambda m: _score_visual_match(m, kg_title)[0])
+            s, r = _score_visual_match(best, kg_title)
+            return (LensMatch(rank=best.rank, title=best.title, link=best.link,
+                              source=best.source, platform=best.platform,
+                              reason=f"scored (score={s}, {r}, votes=0)"),
+                    {"votes": 0, "has_wiki": False, "consensus": False,
+                     "cluster_score": s})
+
+        scored_clusters = []
+        for name in candidates:
+            votes = self._votes_for(name, matches)
+            members = self._cluster_members(name, matches)
+            member_scores = [(_score_visual_match(m, kg_title)[0], m) for m in members]
+            best_score, best_member = max(member_scores, key=lambda t: t[0])
+            has_wiki = any("wikipedia.org" in (m.link or "").lower()
+                           or "imdb.com" in (m.link or "").lower()
+                           for m in members)
+            consensus = bool(other_crop_names) and any(
+                self._name_match(name, o) for o in other_crop_names)
+            kg_bonus = 0
+            if kg_title and self._name_match(name, kg_title.lower()):
+                kg_bonus = self.KG_TITLE_WEIGHT
+            cluster_score = (
+                best_score
+                + self.VOTE_WEIGHT * (votes - 1)
+                + (self.WIKI_MEMBER_WEIGHT if has_wiki else 0)
+                + (self.CONSENSUS_WEIGHT if consensus else 0)
+                + kg_bonus
+            )
+            scored_clusters.append((cluster_score, votes, name, best_score,
+                                    best_member, has_wiki, consensus))
+        scored_clusters.sort(key=lambda t: (-t[0], -t[1]))
+        cluster_score, votes, name, best_score, best_member, has_wiki, consensus = scored_clusters[0]
+
+        members = self._cluster_members(name, matches)
+        wiki_members = [m for m in members
+                        if "wikipedia.org" in (m.link or "").lower()]
+        if wiki_members:
+            chosen = max(wiki_members, key=lambda m: _score_visual_match(m, kg_title)[0])
+        else:
+            chosen = best_member
+        s, r = _score_visual_match(chosen, kg_title)
+        reason = (f"vote_winner (score={s}, votes={votes}, cluster={cluster_score}, "
+                  f"wiki={'yes' if has_wiki else 'no'}, "
+                  f"consensus={'yes' if consensus else 'no'})")
+        meta = {"votes": votes, "has_wiki": has_wiki, "consensus": consensus,
+                "cluster_score": cluster_score, "name": name}
+        return (LensMatch(rank=chosen.rank, title=chosen.title, link=chosen.link,
+                          source=chosen.source, platform=chosen.platform,
+                          reason=reason), meta)
 
     def _select(
         self,
@@ -586,39 +736,26 @@ class WebSearchEngine:
         if not all_visual and not kg_match:
             raise RuntimeError("No visual matches found for this face. Try a clearer, front-facing image of a person with public web/social presence.")
 
-        policy_mod = self._policy_multiplier(policy)
-        candidates: list[tuple] = []
-        for m in all_visual:
-            s, r = _score_visual_match(m, kg_title)
-            s = int(s * policy_mod.get(m.platform, 1.0))
-            candidates.append((s, m, r))
+        # KG entity always wins outright (Lens is confident about WHO this is).
         if kg_match:
-            candidates.append((9999, kg_match, "knowledge_graph_entity"))
-        if not candidates:
-            raise RuntimeError("No visual matches found for this face. Try a clearer, front-facing image of a person with public web/social presence.")
-        candidates.sort(key=lambda t: t[0], reverse=True)
-        best_score, best_raw, reason = candidates[0]
-        # Same abstain policy as search_with_consensus: without a KG anchor
-        # or a high-scoring visual match, prefer to say "we don't know"
-        # rather than naming a random person.
-        if best_raw is kg_match:
-            chosen = LensMatch(rank=None, title=kg_match.title, link=kg_match.link, source=kg_match.source, platform=kg_match.platform, reason="knowledge_graph_entity")
-        elif best_score < 150 and not kg_match:
-            # No KG and a low visual-match score -> abstain. The user sees
-            # "No confident identification" instead of a confidently-wrong name.
+            chosen = LensMatch(rank=None, title=kg_match.title, link=kg_match.link,
+                               source=kg_match.source, platform=kg_match.platform,
+                               reason="knowledge_graph_entity")
+            return chosen, all_visual, by_domain, kg_match
+
+        # Name-voting selection + abstain policy (see select_by_voting).
+        chosen, meta = self.select_by_voting(all_visual, kg_title=None)
+        strong = (meta["votes"] >= 2) or meta["has_wiki"] or (meta["cluster_score"] >= 150)
+        if not strong:
             chosen = LensMatch(
                 rank=None, title="No confident identification",
                 link="", source="", platform="abstain",
                 reason=(
-                    f"abstain (best_score={best_score}<150, no KG, "
-                    f"rank={best_raw.rank} '{best_raw.title[:50]}' "
-                    f"was the best of {len(all_visual)} visual matches but Lens "
-                    f"returned no actual matches for this face)"
+                    f"abstain (votes={meta['votes']}, wiki={'yes' if meta['has_wiki'] else 'no'}, "
+                    f"cluster={meta['cluster_score']}<150, no KG; Lens returned no real "
+                    f"matches for this face among {len(all_visual)} candidates)"
                 ),
             )
-        else:
-            m = best_raw
-            chosen = LensMatch(rank=m.rank, title=m.title, link=m.link, source=m.source, platform=m.platform, reason=f"scored (score={best_score}, {reason})")
         return chosen, all_visual, by_domain, kg_match
     def _select_tail(
         self,
@@ -701,15 +838,103 @@ class WebSearchEngine:
             return self._hydrate_result(cached, image_url, face_hash, image_sha256, cache_key)
 
         lens_started = time.perf_counter()
-        results = self._request_serpapi(image_url, policy=policy)
+        # CASCADE search: try multiple SerpApi engines + source slices.
+        # A single Lens call frequently returns 0 matches on webcam photos
+        # (poor lighting, indoor background, angle) even when the same face
+        # is recognizable in a cleaner crop. To deepen the search without
+        # burning more credits on the same upload, we cascade:
+        #   1. google_lens (default) -- the canonical visual search
+        #   2. google_lens with source=social -- focuses on social profiles
+        #   3. google_reverse_image -- a different engine, sometimes more
+        #      permissive on noisy inputs
+        #   4. bing_visual_search -- Microsoft's image match (free preview
+        #      on SerpApi; sometimes catches what Lens misses)
+        # We stop at the first engine that returns visual_matches OR a
+        # knowledge_graph entity. Total time-budget is bounded so we never
+        # hang the pipeline.
+        engines = [
+            ("google_lens", {"engine": "google_lens"}),
+            ("google_lens_social", {"engine": "google_lens", "source": "social"}),
+            ("google_reverse_image", {"engine": "google_reverse_image"}),
+            ("bing_visual", {"engine": "bing_visual_search"}),
+        ]
+        results: dict[str, Any] = {}
+        cascade_log: list[str] = []
+        for engine_name, extra_params in engines:
+            try:
+                results = self._request_serpapi_engine(
+                    image_url, policy=policy, extra_params=extra_params,
+                )
+            except Exception as _exc:
+                cascade_log.append(f"{engine_name}:ERR({type(_exc).__name__})")
+                continue
+            vm = results.get("visual_matches") or []
+            kg = results.get("knowledge_graph")
+            cascade_log.append(f"{engine_name}:{len(vm)}_matches")
+            if vm or kg:
+                break
+        # If every engine returned empty, still take the LAST one so the
+        # downstream cache & diagnostics see a consistent shape.
         lens_ms = (time.perf_counter() - lens_started) * 1000.0
+        results.setdefault("visual_matches", [])
+        results.setdefault("knowledge_graph", None)
+        results.setdefault("search_metadata", {})
+        results["search_metadata"]["cascade_log"] = cascade_log
 
         visual_matches = results.get("visual_matches", []) or []
         knowledge_graph = results.get("knowledge_graph")
 
-        selected, all_visual, by_domain, kg_match = self._select(
-            visual_matches, knowledge_graph, policy
-        )
+        # _select raises if BOTH visual_matches AND knowledge_graph are
+        # empty -- i.e. SerpApi Lens returned nothing for this face.
+        # Rather than letting that propagate up and break a multi-crop
+        # consensus run, we build a clean empty LensResult, cache it so
+        # reruns don't re-pay SerpApi, and return it. The caller detects
+        # ``result.visual_match_count == 0`` and either falls back
+        # (consensus) or surfaces a clear UX message (single-crop pipeline).
+        try:
+            selected, all_visual, by_domain, kg_match = self._select(
+                visual_matches, knowledge_graph, policy
+            )
+        except RuntimeError:
+            serpapi_total_time = 0.0
+            try:
+                serpapi_total_time = float(
+                    (results.get("search_metadata") or {}).get(
+                        "total_time_taken"
+                    )
+                    or 0.0
+                )
+            except (TypeError, ValueError):
+                serpapi_total_time = 0.0
+            empty = LensResult(
+                query_image_url=image_url,
+                image_sha256=image_sha256 or "",
+                face_hash=face_hash,
+                policy=policy,
+                selected=LensMatch(
+                    rank=None, title="", link="", source="", platform="",
+                    reason="no_visual_matches",
+                ),
+                visual_matches=[],
+                knowledge_graph=None,
+                candidates_by_domain={},
+                visual_match_count=0,
+                cached=False,
+                cache_key=cache_key,
+                cache_hit=False,
+                serpapi_total_time_s=serpapi_total_time,
+                lens_ms=lens_ms,
+                raw_response_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+            self._put_cached(cache_key, empty.to_dict())
+            self.last_diagnostics = SearchDiagnostics(
+                visual_match_count=0,
+                selected_rank=None,
+                selected_reason="no_visual_matches",
+                elapsed_seconds=lens_ms / 1000.0,
+                cached=False,
+            )
+            return empty
 
         serpapi_total = None
         try:
@@ -880,16 +1105,49 @@ class WebSearchEngine:
             return (cached.get("query_image_url", ""), lens, 0.0, 0.0, "cache")
 
         # Soft fallback: same face was seen before on a different photo.
-        # Reuse the most recent matching entry. This handles the case where
-        # the user takes a new photo of the same person -- Lens can't tell,
-        # but we know the answer from the previous run.
+        #
+        # IMPORTANT SAFETY RULE: we only reuse a cached *match* when the
+        # cached entry is itself an empty result (no_visual_matches).
+        # Reusing a positive match for a new photo is dangerous -- a new
+        # photo of the SAME person is fine, but if the SFace embedding
+        # somehow collides across different people (or the cache file
+        # belongs to a different face with the same hash), we would
+        # confidently misidentify the new face as whoever was last cached
+        # for that hash. So:
+        #   * empty / no_visual_matches cached entry  -> safe to reuse
+        #     (Lens already told us it has no clue; no harm in caching it).
+        #   * positive match cached entry             -> SKIP, do a fresh
+        #     SerpApi call so the new image is verified independently.
         fh_match = self._get_cached_by_face_hash(face_hash)
         if fh_match is not None:
             fh_cached, fh_key = fh_match
-            fh_cached["cache_key"] = fh_key
-            fh_cached["cache_hit_face_hash"] = True
-            lens = self._hydrate_result(fh_cached, fh_cached.get("query_image_url", ""), face_hash, fh_cached.get("image_sha256", ""), fh_key)
-            return (fh_cached.get("query_image_url", ""), lens, 0.0, 0.0, "face_hash_cache")
+            cached_sel = (fh_cached.get("selected") or {})
+            cached_reason = (cached_sel.get("reason") or "") if isinstance(cached_sel, dict) else ""
+            cached_is_empty = (
+                int(fh_cached.get("visual_match_count", 0)) == 0
+                or "no_visual_matches" in cached_reason
+            )
+            if cached_is_empty:
+                fh_cached["cache_key"] = fh_key
+                fh_cached["cache_hit_face_hash"] = True
+                lens = self._hydrate_result(
+                    fh_cached,
+                    fh_cached.get("query_image_url", ""),
+                    face_hash,
+                    fh_cached.get("image_sha256", ""),
+                    fh_key,
+                )
+                return (
+                    fh_cached.get("query_image_url", ""),
+                    lens,
+                    0.0,
+                    0.0,
+                    "face_hash_cache_empty",
+                )
+            # Positive match on file -- refuse the soft fallback so we
+            # always verify a new photo with a fresh Lens call.
+            # (Cache files for this face_hash will be overwritten by the
+            # fresh result, which also evicts any stale "good" entry.)
 
         upload_started = time.perf_counter()
         public_url = self._upload_bytes(image_bytes, "<bytes>")
@@ -911,21 +1169,64 @@ class WebSearchEngine:
         tight_bytes: bytes,
         face_hash: str | None = None,
         policy: str = "social",
+        plain_bytes: bytes | None = None,
     ) -> tuple[str, "LensResult", float, float, str]:
-        """Run two Lens searches (enhanced-context + tight-crop) and pick the
-        person who appears in BOTH visual_matches lists. The intersection by
-        person-name is a much stronger signal than either alone — typically
-        +20-40 percentage points on noisy webcam inputs.
+        """Run two Lens searches (context crop + tight crop) and pick the
+        person whose name is voted for across BOTH result lists.
+
+        Image-variant cascade: the plain 1024px padded crop is tried FIRST
+        (measured 60 Lens matches) before the upscaled/CLAHE-enhanced crop
+        (measured 0 matches -- Google's matcher rejects the heavy
+        enhancement). ``plain_bytes`` is optional; when provided and the
+        enhanced crop returns 0 matches, the plain crop is retried.
         """
-        url1, lens1, up1, lens1_ms, host1 = self.upload_and_search(
-            enhanced_bytes, face_hash=face_hash + ":enhanced" if face_hash else None, policy=policy,
+        def _variant_search(primary: bytes, primary_tag: str, fallback: bytes | None, fallback_tag: str):
+            # Try the primary variant; on empty results or hard failure,
+            # retry once with the fallback variant.
+            try:
+                res = self.upload_and_search(
+                    primary, face_hash=face_hash + ":" + primary_tag if face_hash else None, policy=policy,
+                )
+            except Exception:
+                res = None
+            if res is not None and res[1].visual_match_count > 0:
+                return res
+            if fallback:
+                try:
+                    res2 = self.upload_and_search(
+                        fallback, face_hash=face_hash + ":" + fallback_tag if face_hash else None, policy=policy,
+                    )
+                except Exception:
+                    res2 = None
+                if res2 is not None and res2[1].visual_match_count > 0:
+                    return res2
+                if res2 is not None and res is None:
+                    return res2
+            return res
+
+        url1, lens1, up1, lens1_ms, host1 = _variant_search(
+            enhanced_bytes, "enhanced", plain_bytes, "plain",
         )
+        if lens1 is None:
+            raise RuntimeError("Google Lens upload/search failed for all image variants.")
         try:
             url2, lens2, up2, lens2_ms, host2 = self.upload_and_search(
                 tight_bytes, face_hash=face_hash + ":tight" if face_hash else None, policy=policy,
             )
-        except Exception as e:
+        except Exception:
             # Tight crop may produce 0 visual matches; fall back to single-pass.
+            return (url1, lens1, up1, lens1_ms, host1)
+        # If EITHER crop returned 0 visual matches, consensus is impossible.
+        # Return whichever crop DID return matches (preferring the tighter
+        # crop when both returned matches, since it isolates the face).
+        if lens1.visual_match_count == 0 and lens2.visual_match_count == 0:
+            # Both crops got nothing -- bubble up the empty crop1 result
+            # so the caller sees visual_match_count == 0 and surfaces a
+            # clean "no identity found" UX instead of crashing.
+            return (url1, lens1, up1, lens1_ms, host1)
+        if lens1.visual_match_count == 0:
+            return (url2, lens2, up2, lens2_ms, host2)
+        if lens2.visual_match_count == 0:
             return (url1, lens1, up1, lens1_ms, host1)
         names1 = self._extract_person_names(lens1.visual_matches)
         names2 = self._extract_person_names(lens2.visual_matches)
@@ -958,57 +1259,34 @@ class WebSearchEngine:
                 boosted.append(m)
 
         kg_title = lens1.knowledge_graph.title if lens1.knowledge_graph else None
-        candidates: list[tuple] = []
-        for m in boosted:
-            s, r = _score_visual_match(m, kg_title)
-            if "consensus_hit" in (m.reason or ""):
-                # Consensus boost: was +50, now +25. Even with strict name
-                # validation, a name that appears in BOTH Lens passes is a
-                # weaker signal than a Wikipedia anchor or a KG title match.
-                s += 25
-            candidates.append((s, m, r))
+        # Name-voting over BOTH crops' matches. Cross-crop name overlap gives
+        # the CONSENSUS_WEIGHT bonus; votes come from every match mentioning
+        # the name in either list (boosted already contains both, deduped).
         if lens1.knowledge_graph:
-            candidates.append((9999, lens1.knowledge_graph, "knowledge_graph_entity"))
-        candidates.sort(key=lambda t: t[0], reverse=True)
-
-        best_score, best_raw, reason = candidates[0] if candidates else (0, None, "")
-        # Abstain when the best match is weak AND we have no strong signal.
-        # A "strong signal" is either:
-        #   (a) Google Knowledge Graph entity (Lens is confident about WHO this is), or
-        #   (b) Consensus hit (the same person appears in BOTH crops), or
-        #   (c) A high-scoring Wikipedia/IMDb-style anchor (>= 150).
-        # Without any of these, a random LinkedIn profile or .edu page can win
-        # with score ~110 just from the platform boost, which is exactly the
-        # failure mode that produced the Mr. Indian Hacker → Krishna
-        # Coimbatore Balram and TechWiser → Prasad Wagh mis-identifications.
-        has_kg = best_raw is lens1.knowledge_graph
-        has_consensus = "consensus_hit" in (best_raw.reason or "")
-        # Score thresholds: 80 = very low (any Wikipedia+social), 150 = moderate
-        # (Wikipedia + consensus, or a real strong Wikipedia + KG-title match).
-        abstain = (not has_kg) and (not has_consensus) and (best_score < 150)
-        if abstain:
             chosen = LensMatch(
-                rank=None, title="No confident identification",
-                link="", source="", platform="abstain",
-                reason=(
-                    f"abstain (best_score={best_score}<150, no consensus, no KG, "
-                    f"rank={best_raw.rank if best_raw else '?'} '{best_raw.title[:50] if best_raw else ''}' "
-                    f"was the best of {len(boosted)} visual matches but Lens returned no "
-                    f"actual matches for this face)"
-                ),
-            )
-        elif best_raw is lens1.knowledge_graph:
-            chosen = LensMatch(
-                rank=None, title=best_raw.title, link=best_raw.link,
-                source=best_raw.source, platform=best_raw.platform,
+                rank=None, title=lens1.knowledge_graph.title,
+                link=lens1.knowledge_graph.link,
+                source=lens1.knowledge_graph.source,
+                platform=lens1.knowledge_graph.platform,
                 reason="knowledge_graph_entity",
             )
         else:
-            chosen = LensMatch(
-                rank=best_raw.rank, title=best_raw.title, link=best_raw.link,
-                source=best_raw.source, platform=best_raw.platform,
-                reason=f"scored (score={best_score}, {reason}, consensus={'yes' if 'consensus_hit' in (best_raw.reason or '') else 'no'})",
+            chosen, meta = self.select_by_voting(
+                boosted, kg_title=None,
+                other_crop_names=(real_names1 | real_names2),
             )
+            strong = (meta["votes"] >= 2) or meta["has_wiki"] or meta["consensus"]
+            if not strong:
+                chosen = LensMatch(
+                    rank=None, title="No confident identification",
+                    link="", source="", platform="abstain",
+                    reason=(
+                        f"abstain (votes={meta['votes']}, wiki={'yes' if meta['has_wiki'] else 'no'}, "
+                        f"consensus={'yes' if meta['consensus'] else 'no'}, "
+                        f"cluster={meta['cluster_score']}; no KG; Lens returned no real "
+                        f"matches for this face among {len(boosted)} candidates)"
+                    ),
+                )
 
         merged = LensResult(
             query_image_url=url1,

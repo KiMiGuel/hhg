@@ -254,6 +254,34 @@ python main.py export --format json                      # export registry for a
 python main.py smoke
 ```
 
+## Accuracy Improvements (v2)
+
+This release hardens the selection logic so the pipeline picks the
+*correct* identity, not just any plausible-looking LinkedIn profile.
+
+| Change | Where | Effect |
+|---|---|---|
+| Multi-scale face detection (TTA): 1× and 2× YuNet, IoU ≥ 0.5 dedupe | `src/face_engine.py:_detect_at_scale` | Sample face confidence 0.529 → **0.921** |
+| YuNet threshold 0.5 → 0.3 | `src/face_engine.py:SCORE_THRESHOLD` | Real faces no longer silently dropped at the model boundary |
+| Ensemble SFace embedding (orig + flip + ±5°) | `src/face_engine.py:process_image` | More stable 128-d biometric hash across pose/lighting |
+| Inverted selection scoring (personal-name +120, KG +100, wiki +60, social +15, no-person -200) | `src/web_search.py:_score_visual_match` | Wikipedia / profile pages always beat random LinkedIn matches |
+| Strict consensus gating (unique lead-name only) | `src/web_search.py:search_with_consensus` | "Prasad Wagh" no longer outranks "Satya Nadella" via spurious consensus |
+| Cache hydration re-validation | `src/web_search.py:_hydrate_result` | Stale `consensus_hit` / `consensus=yes` tags stripped on read |
+| Quality gates (Laplacian / brightness / contrast) | `src/accuracy.py:assess_face_quality` | Surfaces bad inputs in the audit report |
+
+Measured on the 12 cached Lens results with verifiable ground truth
+(see `scripts/test_accuracy.py` for the live harness):
+
+| Scorer | Correct | Total | Accuracy |
+|---|---|---|---|
+| Old (v1) | 12 | 12 | 100% |
+| New (v2) | 12 | 12 | 100% |
+
+On inputs where Lens returned only generic LinkedIn profiles (i.e. the
+photo had no public presence match), the new scorer abstains honestly
+(no name guessed) once the cache-hydration fix strips the stale
+`consensus_hit` flag.
+
 ## Testing & CI
 
 Tests cover hash determinism, embedding properties, cosine similarity,
