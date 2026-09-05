@@ -9,6 +9,8 @@ venv/
 
 # Ephemeral face crops & artifacts
 temp/
+data/captured_face.jpg
+
 artifacts/
 reports/
 

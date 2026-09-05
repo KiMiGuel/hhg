@@ -384,8 +384,10 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
     console.print(Panel(timing_summary, border_style="cyan"))
 
     # The big identity+anchor+tamper result box, with per-stage timing subtitle.
-    has_anchor = report.get("stage3", {}).get("tx_hash")
-    if has_anchor and lens_result is not None:
+    # Always render the rich result box when we have a LensResult.
+    # On cache hits (already_anchored), the previous run'''s tx_hash
+    # is what we use, so the user still sees the full result.
+    if lens_result is not None:
         console.print(
             render_final_summary(
                 lens_result,
