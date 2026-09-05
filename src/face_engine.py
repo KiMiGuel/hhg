@@ -383,8 +383,12 @@ class FaceEngine:
         pad = max(0, (target - cur) // 2)
         x1 = max(0, x - pad); y1 = max(0, y - pad)
         x2 = min(iw, x + w + pad); y2 = min(ih, y + h + pad)
-        if (x2 - x1) >= int(iw * 0.95) and (y2 - y1) >= int(ih * 0.95):
-            x1, y1, x2, y2 = 0, 0, iw, ih
+        # NOTE: previously we fell back to the WHOLE image when the padded
+        # crop already covered >=95% of the original (i.e. the face bbox is
+        # very large). That destroyed Lens matching: a 3.6MB Microsoft press
+        # photo with a tiny face inside a huge bbox would be saved as the
+        # whole image -- Lens saw mostly background and returned 0 matches.
+        # The fix: always crop around the face, even if the crop is large.
         cropped = image_bgr[y1:y2, x1:x2]
         ch, cw = cropped.shape[:2]
         if max(ch, cw) > long_edge:
