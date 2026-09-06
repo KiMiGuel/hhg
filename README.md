@@ -1,17 +1,28 @@
-# Face Identification & Blockchain Verification Pipeline (HH Goa 2026 — Task 3)
+# 🔍 Face Identification & Blockchain Verification Pipeline
 
-An end-to-end automated pipeline that accepts a facial image input, discovers
-corresponding social media content through **dynamic** visual search (no
-hardcoded results), and anchors the discovered metadata into an EVM blockchain
-for **tamper-evident** verification.
+<div align="center">
 
-> **One click runs the entire pipeline.** On Windows, double-click
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+[![CI](https://github.com/Vansh756/hhg/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/Vansh756/hhg/actions)
+[![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.20-363636?style=flat-square&logo=solidity&logoColor=white)](contracts/FaceRegistry.sol)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?style=flat-square&logo=opencv&logoColor=white)](https://opencv.org)
+[![EVM](https://img.shields.io/badge/EVM-Compatible-3C3C3D?style=flat-square&logo=ethereum&logoColor=white)](https://ethereum.org)
+[![Hackathon](https://img.shields.io/badge/HHGoa-2026_🚀-orange?style=flat-square)](#)
+
+**An end-to-end pipeline that identifies faces via reverse image search and anchors results on-chain for tamper-evident verification.**
+
+</div>
+
+> ⚡ **One click runs the entire pipeline.** On Windows, double-click
 > `run_live_pipeline.bat`. From any shell: `python main.py live --image
 > data\sample_face.jpg --fresh-chain`. The runner auto-starts Anvil, deploys
 > the smart contract, runs SerpApi Google Lens, anchors the result on-chain,
 > and runs the tamper-evidence drill. See [One-Click Run](#one-click-run).
 
-## Key Features
+---
+
+## ✨ Key Features
 
 - **Biometric face encoding** — OpenCV YuNet DNN face detection, a 15%-padded
   crop for search context, and a deterministic SHA-256 hash of the **128-d SFace
@@ -41,7 +52,7 @@ for **tamper-evident** verification.
 - **Zero cost architecture** — local Anvil node (zero gas), free SerpApi tier
   (100 searches/month, no credit card), free ephemeral image hosting.
 
-## Pipeline Architecture
+## 🏗️ Pipeline Architecture
 
 ```
 +------------------+     +--------------------+     +--------------------------+
@@ -56,7 +67,7 @@ for **tamper-evident** verification.
 +------------------+     +--------------------+     +--------------------------+
 ```
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 | Component | Technology |
 |---|---|
@@ -115,7 +126,7 @@ hhg/
 └── .env.example
 ```
 
-## Dataset setup
+## 📦 Dataset setup
 
 **No images are shipped with this repository.** All eval corpora, demo seeds, and
 test fixtures are generated on demand by the scripts below. This keeps the repo
@@ -145,7 +156,7 @@ the `HHG_SAMPLE_IMAGE` environment variable (see `.env.example`).
 
 ---
 
-## One-Click Run
+## 🖱️ One-Click Run
 
 The fastest way to run the full pipeline is the `run_live_pipeline.bat` at the
 repository root. It handles everything: it sets the working directory, verifies
@@ -493,7 +504,7 @@ Per-stage details in [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
-## Quickstart
+## 🚀 Quickstart
 
 ```bash
 # 1. Clone
@@ -598,7 +609,7 @@ See [`docs/benchmark.md`](docs/benchmark.md) for full outputs and
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 | Env var | Default | Purpose |
 |---------|---------|---------|
@@ -612,7 +623,7 @@ See [`.env.example`](.env.example) for the full template.  `SERPAPI_KEY`
 
 ---
 
-## Security &amp; privacy
+## 🔒 Security &amp; privacy
 
 - See [`SECURITY.md`](SECURITY.md) for how to report vulnerabilities and
   what the project handles safely.
@@ -629,7 +640,7 @@ explicitly consented.
 
 ---
 
-## Project layout
+## 📁 Project layout
 
 ```text
 hhg/
@@ -661,7 +672,7 @@ hhg/
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are very welcome -- bug reports, docs, tests, new platform
 parsers, better scoring rules.  See [`CONTRIBUTING.md`](CONTRIBUTING.md)
@@ -676,7 +687,7 @@ python scripts/master_accuracy.py --quick
 
 ---
 
-## License
+## 📜 License
 
 MIT -- see [`LICENSE`](LICENSE).  Bundled ONNX models retain their
 upstream MIT/Apache 2.0 licenses.
