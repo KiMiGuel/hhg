@@ -55,8 +55,6 @@ def verify_entry(face_hash: str, expected_url: str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        console.print(
-            "[bold red]Usage: python verify.py <face_hash> <social_post_url>[/bold red]"
-        )
+        console.print("[bold red]Usage: python verify.py <face_hash> <social_post_url>[/bold red]")
         sys.exit(1)
     verify_entry(sys.argv[1], sys.argv[2])

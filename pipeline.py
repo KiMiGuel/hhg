@@ -46,9 +46,28 @@ from src.web_search import SearchDiagnostics, WebSearchEngine
 import re as _re_name_hint
 
 _NAME_HINT_STOPWORDS = {
-    "img", "image", "photo", "picture", "pic", "selfie", "face", "webcam",
-    "headshot", "portrait", "profile", "demo", "sample", "test", "data",
-    "captured", "capture", "input", "output", "tmp", "temp", "lens",
+    "img",
+    "image",
+    "photo",
+    "picture",
+    "pic",
+    "selfie",
+    "face",
+    "webcam",
+    "headshot",
+    "portrait",
+    "profile",
+    "demo",
+    "sample",
+    "test",
+    "data",
+    "captured",
+    "capture",
+    "input",
+    "output",
+    "tmp",
+    "temp",
+    "lens",
 }
 
 
@@ -81,10 +100,33 @@ def _derive_name_hint_from_path(image_path):
     if len(cleaned) < 2:
         return None
     GENERIC_SUFFIXES = {
-        "cricket", "football", "soccer", "tennis", "music", "actor", "actress",
-        "singer", "msft", "google", "apple", "ceo", "founder", "official",
-        "wiki", "wikipedia", "profile", "page", "post", "news", "twitter",
-        "instagram", "facebook", "linkedin", "youtube", "fan", "fans",
+        "cricket",
+        "football",
+        "soccer",
+        "tennis",
+        "music",
+        "actor",
+        "actress",
+        "singer",
+        "msft",
+        "google",
+        "apple",
+        "ceo",
+        "founder",
+        "official",
+        "wiki",
+        "wikipedia",
+        "profile",
+        "page",
+        "post",
+        "news",
+        "twitter",
+        "instagram",
+        "facebook",
+        "linkedin",
+        "youtube",
+        "fan",
+        "fans",
     }
     while cleaned and cleaned[-1].lower() in GENERIC_SUFFIXES:
         cleaned.pop()
@@ -146,7 +188,9 @@ def _hint_based_search(name_hint, search_engine):
         )
         if wiki_resp.status_code == 200:
             j = wiki_resp.json()
-            if j.get("type") == "standard" and j.get("content_urls", {}).get("desktop", {}).get("page"):
+            if j.get("type") == "standard" and j.get("content_urls", {}).get("desktop", {}).get(
+                "page"
+            ):
                 candidate_url = j["content_urls"]["desktop"]["page"]
                 candidate_summary = j.get("extract", "")[:200]
                 candidate_title = j.get("title", "")
@@ -163,8 +207,11 @@ def _hint_based_search(name_hint, search_engine):
             sr = _req.get(
                 "https://en.wikipedia.org/w/api.php",
                 params={
-                    "action": "query", "list": "search", "srsearch": title,
-                    "format": "json", "srlimit": 1,
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": title,
+                    "format": "json",
+                    "srlimit": 1,
                 },
                 headers={"User-Agent": "HHG-FaceID/1.0 (educational)"},
                 timeout=8,
@@ -231,7 +278,9 @@ def _hint_based_search(name_hint, search_engine):
 console = Console()
 
 
-def pick_face_interactively(face_engine: FaceEngine, input_image_path: str, face_arg: int | None) -> int:
+def pick_face_interactively(
+    face_engine: FaceEngine, input_image_path: str, face_arg: int | None
+) -> int:
     """Show all detected faces and let the user pick one when several are found.
 
     Uses the arrow-key menu in interactive terminals (works in classic cmd);
@@ -251,12 +300,15 @@ def pick_face_interactively(face_engine: FaceEngine, input_image_path: str, face
                 f"Face {i}:  bbox={f['bbox']}  confidence={f['confidence']:.2f}"
                 for i, f in enumerate(faces)
             ]
-            return select_option(
-                f"{len(faces)} faces detected — select one",
-                labels,
-                default=0,
-                allow_esc=True,
-            ) or 0
+            return (
+                select_option(
+                    f"{len(faces)} faces detected — select one",
+                    labels,
+                    default=0,
+                    allow_esc=True,
+                )
+                or 0
+            )
         except Exception:
             pass  # fall through to numbered prompt
 
@@ -278,9 +330,13 @@ def pick_face_interactively(face_engine: FaceEngine, input_image_path: str, face
         console.print("[red]Invalid choice — try again.[/red]")
 
 
-def run_pipeline(input_image_path: str, demo_mode: bool = False,
-                 face_index: int | None = None, skip_chain: bool = False,
-                 show_gui: bool = True):
+def run_pipeline(
+    input_image_path: str,
+    demo_mode: bool = False,
+    face_index: int | None = None,
+    skip_chain: bool = False,
+    show_gui: bool = True,
+):
     # ---- Visual header + stage progress ----
     console.print(render_pipeline_header())
     if demo_mode:
@@ -300,7 +356,13 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
         run_preflight(input_image_path, require_serpapi=True)
     else:
         # In demo mode, only check the input image and blockchain (not Serpapi)
-        from src.preflight import check_input_image, check_rpc_connection, check_contract_deployed, check_models
+        from src.preflight import (
+            check_input_image,
+            check_rpc_connection,
+            check_contract_deployed,
+            check_models,
+        )
+
         check_input_image(input_image_path)
         check_models()
         w3 = check_rpc_connection()
@@ -337,7 +399,9 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
     console.print(render_hash_panel(face_hash, face_engine_mod.EMBEDDING_DIM))
 
     elapsed = time.perf_counter() - t_start
-    console.print(f"[green]✔[/green] Face detected at bbox (x, y, w, h): {bbox} (confidence: {confidence:.2f})")
+    console.print(
+        f"[green]✔[/green] Face detected at bbox (x, y, w, h): {bbox} (confidence: {confidence:.2f})"
+    )
     console.print(f"[green]✔[/green] Face cropped and saved to: [bold]{crop_path}[/bold]")
     console.print(
         f"[green]✔[/green] SFace Embedding dim: [bold]{face_engine_mod.EMBEDDING_DIM}[/bold] "
@@ -346,8 +410,13 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
     console.print(f"[green]✔[/green] Biometric Hash (SHA-256): [bold cyan]{face_hash}[/bold cyan]")
     console.print(f"[dim]  Stage 1 completed in {elapsed:.2f}s[/dim]")
     report["stage1"].update(
-        {"bbox": list(bbox), "embedding_dim": face_engine_mod.EMBEDDING_DIM,
-         "face_hash": face_hash, "confidence": confidence, "quality_pass": quality["pass"]}
+        {
+            "bbox": list(bbox),
+            "embedding_dim": face_engine_mod.EMBEDDING_DIM,
+            "face_hash": face_hash,
+            "confidence": confidence,
+            "quality_pass": quality["pass"],
+        }
     )
 
     # ---------------------------------------------------------------- Stage 2
@@ -369,6 +438,7 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
         # ---- compute a stable image-identity hash so the SerpApi cache is
         # keyed on the source image bytes, not on the ephemeral catbox URL.
         import hashlib as _hashlib
+
         # The source image on disk is stable. Hashing the temp crop would
         # change every run (because FaceEngine re-encodes JPEG + applies
         # per-run bbox jitter), busting the cache.
@@ -433,7 +503,11 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
         if _consensus_cached:
             _consensus_cached["cache_key"] = _consensus_key
             lens_result = search_engine._hydrate_result(
-                _consensus_cached, "<cached>", face_hash, image_sha256, _consensus_key,
+                _consensus_cached,
+                "<cached>",
+                face_hash,
+                image_sha256,
+                _consensus_key,
             )
             public_image_url = _consensus_cached.get("query_image_url", "")
             upload_ms = 0.0
@@ -448,10 +522,13 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
             )
         elif _enhanced_bytes and _tight_bytes and _enhanced_bytes != _tight_bytes:
             # Two distinct crops available -> run multi-crop consensus.
-            with console.status("[bold green]Uploading 2 face crops + querying Google Lens (consensus)..."):
+            with console.status(
+                "[bold green]Uploading 2 face crops + querying Google Lens (consensus)..."
+            ):
                 public_image_url, lens_result, upload_ms, lens_ms, host = (
                     search_engine.search_with_consensus(
-                        _enhanced_bytes, _tight_bytes,
+                        _enhanced_bytes,
+                        _tight_bytes,
                         face_hash=face_hash,
                         policy="social",
                         plain_bytes=_plain_bytes or None,
@@ -467,7 +544,11 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
             with console.status("[bold green]Uploading face crop + querying Google Lens..."):
                 public_image_url, lens_result, upload_ms, lens_ms, host = (
                     search_engine.upload_and_search(
-                        _plain_bytes if _plain_bytes else (_enhanced_bytes if _enhanced_bytes else _src_bytes_for_hash),
+                        (
+                            _plain_bytes
+                            if _plain_bytes
+                            else (_enhanced_bytes if _enhanced_bytes else _src_bytes_for_hash)
+                        ),
                         face_hash=face_hash,
                         policy="social",
                     )
@@ -487,7 +568,8 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
         # Per-stage telemetry (one line, very low noise)
         cache_state = "HIT" if lens_result.cache_hit else "MISS"
         console.print(
-            f"[dim]  STAGE2: upload={upload_ms:.0f}ms lens={lens_ms:.0f}ms "            f"serpapi_total={lens_result.serpapi_total_time_s}s host={host} cache={cache_state}[/dim]"
+            f"[dim]  STAGE2: upload={upload_ms:.0f}ms lens={lens_ms:.0f}ms "
+            f"serpapi_total={lens_result.serpapi_total_time_s}s host={host} cache={cache_state}[/dim]"
         )
 
         # Surface the identity block immediately after Stage 2.
@@ -505,15 +587,17 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
         try:
             from src.image_match import find_exact_matches
             from dataclasses import replace as _dc_replace
+
             if lens_result is not None and lens_result.visual_matches:
-                with console.status("[bold green]Exact-image matching (perceptual hash over thumbnails)..."):
-                    _exact = find_exact_matches(
-                        input_image_path, lens_result.visual_matches)
+                with console.status(
+                    "[bold green]Exact-image matching (perceptual hash over thumbnails)..."
+                ):
+                    _exact = find_exact_matches(input_image_path, lens_result.visual_matches)
                 if _exact:
-                    tops = ", ".join(
-                        f"{m['platform']} (d={m['hamming']})" for m in _exact[:3])
+                    tops = ", ".join(f"{m['platform']} (d={m['hamming']})" for m in _exact[:3])
                     console.print(
-                        f"[green]✔[/green] Exact image also found on: [bold]{tops}[/bold]")
+                        f"[green]✔[/green] Exact image also found on: [bold]{tops}[/bold]"
+                    )
 
                     # Re-tag visual matches whose link was confirmed as exact
                     # so subsequent re-selections (and the audit trail) know
@@ -527,8 +611,7 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
                                 new_visual.append(_dc_replace(m, reason=tagged_reason))
                             else:
                                 new_visual.append(m)
-                        lens_result = _dc_replace(
-                            lens_result, visual_matches=new_visual)
+                        lens_result = _dc_replace(lens_result, visual_matches=new_visual)
                         # Re-run the selector on the tagged visual matches so
                         # the exact-image proof affects the CURRENT selected
                         # identity, not just future cache replays/reports.
@@ -536,7 +619,11 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
                             raw_visual = [m.to_dict() for m in new_visual]
                             selected, all_visual, by_domain, kg_match = search_engine._select(
                                 raw_visual,
-                                lens_result.knowledge_graph.to_dict() if lens_result.knowledge_graph else None,
+                                (
+                                    lens_result.knowledge_graph.to_dict()
+                                    if lens_result.knowledge_graph
+                                    else None
+                                ),
                                 lens_result.policy,
                             )
                             lens_result = _dc_replace(
@@ -565,16 +652,23 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
         _bio = None
         try:
             from src.biometric_verify import BiometricVerifier, candidate_photo_urls
+
             sel_title = str(getattr(lens_result.selected, "title", "") or "")
-            if (face_engine.last_embedding is not None
-                    and sel_title
-                    and sel_title != "No confident identification"):
-                with console.status("[bold green]Biometric re-verification (fetching candidate profile photos)..."):
+            if (
+                face_engine.last_embedding is not None
+                and sel_title
+                and sel_title != "No confident identification"
+            ):
+                with console.status(
+                    "[bold green]Biometric re-verification (fetching candidate profile photos)..."
+                ):
                     _photo_urls = candidate_photo_urls(
                         str(getattr(lens_result.selected, "link", "") or ""),
-                        lens_result.platform_profiles)
+                        lens_result.platform_profiles,
+                    )
                     _bio = BiometricVerifier(face_engine).verify(
-                        face_engine.last_embedding, _photo_urls)
+                        face_engine.last_embedding, _photo_urls
+                    )
                 console.print(
                     f"[green]✔[/green] Biometric re-verification: "
                     f"[bold]{_bio['biometric_confidence']}[/bold] "
@@ -591,9 +685,7 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
                 "[bold yellow]⚠ Google Lens could not identify this face.[/bold yellow] "
                 "Try a clearer, front-facing image of a person with public web/social presence."
             )
-            report["stage2"] = (
-                lens_result.to_dict() if hasattr(lens_result, "to_dict") else {}
-            )
+            report["stage2"] = lens_result.to_dict() if hasattr(lens_result, "to_dict") else {}
             return report
 
     console.print(render_comparison_panel(crop_path, match_data))
@@ -692,8 +784,7 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
             f"[green]✔[/green] Transaction Confirmed! TxHash: [bold cyan]{tx_hash}[/bold cyan]"
         )
         console.print(
-            f"[green]✔[/green] Included in Block Number: [bold]{block}[/bold] | "
-            f"Gas Used: {gas}"
+            f"[green]✔[/green] Included in Block Number: [bold]{block}[/bold] | " f"Gas Used: {gas}"
         )
         # Show blockchain panel
         console.print(render_blockchain_panel(tx_hash, block, gas))
@@ -769,7 +860,9 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
             "[dim]Any tampering of the discovered social data is immediately exposed.[/dim]"
         )
     else:
-        console.print("[bold red]!! Tamper drill unexpectedly passed -- audit the system![/bold red]")
+        console.print(
+            "[bold red]!! Tamper drill unexpectedly passed -- audit the system![/bold red]"
+        )
     report["stage4"].update(
         {
             "tamper_detected": not tamper_audit["valid"],
@@ -785,7 +878,9 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
     # ------------------------------------------------- Audit report artifact
     report["network"]["chain_id"] = bc_manager.w3.eth.chain_id
     report_path = write_report(report)
-    console.print(f"\n[bold yellow]>> Audit report saved to:[/bold yellow] [bold]{report_path}[/bold]")
+    console.print(
+        f"\n[bold yellow]>> Audit report saved to:[/bold yellow] [bold]{report_path}[/bold]"
+    )
 
     # ---- Total pipeline timing ----
     total_elapsed = time.perf_counter() - t_start
@@ -824,9 +919,9 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False,
         console.print(
             Panel.fit(
                 "[bold green]PIPELINE COMPLETED SUCCESSFULLY END-TO-END[/bold green]",
-            border_style="green",
+                border_style="green",
+            )
         )
-    )
 
 
 if __name__ == "__main__":
