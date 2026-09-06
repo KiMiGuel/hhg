@@ -644,30 +644,30 @@ explicitly consented.
 
 ```text
 hhg/
-â”œâ”€â”€ main.py                       # Unified CLI (live / run / verify / records / ...)
-â”œâ”€â”€ pipeline.py                   # 4-stage pipeline orchestration
-â”œâ”€â”€ requirements.txt              # Runtime deps
-â”œâ”€â”€ requirements-dev.txt          # Dev / test / lint deps
-â”œâ”€â”€ pyproject.toml                # Ruff + black + pytest config
-â”œâ”€â”€ Makefile                      # Convenience targets (make test / bench / lint)
-â”œâ”€â”€ LICENSE
-â”œâ”€â”€ CHANGELOG.md
-â”œâ”€â”€ CONTRIBUTING.md
-â”œâ”€â”€ CODE_OF_CONDUCT.md
-â”œâ”€â”€ SECURITY.md
-â”œâ”€â”€ README.md                     # (this file)
-â”œâ”€â”€ data/                         # Generated on demand (see Dataset setup); not shipped in repo
-â”œâ”€â”€ src/                          # face_engine, web_search, platform_profiles, ...
-â”œâ”€â”€ scripts/                      # master_accuracy, accuracy_eval, live_run, hard_eval, ...
-â”‚   â””â”€â”€ dev/                      # dev / reproducibility helpers
-â”œâ”€â”€ tests/                        # pytest suite (no SerpApi, no Anvil)
-â”œâ”€â”€ contracts/                    # FaceRegistry.sol
-â”œâ”€â”€ .github/
-â”‚   â”œâ”€â”€ workflows/ci.yml
-â”‚   â”œâ”€â”€ ISSUE_TEMPLATE/
-â”‚   â”œâ”€â”€ PULL_REQUEST_TEMPLATE.md
-â”‚   â””â”€â”€ CODEOWNERS
-â””â”€â”€ docs/                         # architecture, benchmark, troubleshooting
+├── main.py                       # Unified CLI (live / run / verify / records / ...)
+├── pipeline.py                   # 4-stage pipeline orchestration
+├── requirements.txt              # Runtime deps
+├── requirements-dev.txt          # Dev / test / lint deps
+├── pyproject.toml                # Ruff + black + pytest config
+├── Makefile                      # Convenience targets (make test / bench / lint)
+├── LICENSE
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── SECURITY.md
+├── README.md                     # (this file)
+├── data/                         # Generated on demand (see Dataset setup); not shipped in repo
+├── src/                          # face_engine, web_search, platform_profiles, ...
+├── scripts/                      # master_accuracy, accuracy_eval, live_run, hard_eval, ...
+│   └── dev/                      # dev / reproducibility helpers
+├── tests/                        # pytest suite (no SerpApi, no Anvil)
+├── contracts/                    # FaceRegistry.sol
+├── .github/
+│   ├── workflows/ci.yml
+│   ├── ISSUE_TEMPLATE/
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   └── CODEOWNERS
+└── docs/                         # architecture, benchmark, troubleshooting
 ```
 
 ---
