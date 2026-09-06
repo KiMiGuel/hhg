@@ -34,16 +34,17 @@ def main():
     console.print(
         Panel(
             "[dim]This demo runs the complete 4-stage pipeline using a\n"
-            "pre-recorded search result — no SerpApi credits consumed,\n"
+            "pre-recorded search result - no SerpApi credits consumed,\n"
             "no internet required. Perfect for the hackathon recording.[/dim]",
             border_style="dim",
         )
     )
 
     # Check prerequisites
-    if not os.path.exists("data/sample_face.jpg"):
-        console.print("[red]✖ Sample image missing: data/sample_face.jpg[/red]")
-        console.print("[dim]  Download a face image or capture one from the dashboard.[/dim]")
+    sample_img = os.environ.get("HHG_SAMPLE_IMAGE", "data/sample_face.jpg")
+    if not os.path.exists(sample_img):
+        console.print("[red]Sample image missing: " + sample_img + "[/red]")
+        console.print("[dim]  Set HHG_SAMPLE_IMAGE=<path> or download a face image to data/sample_face.jpg[/dim]")
         sys.exit(1)
 
     # Check node
@@ -52,7 +53,7 @@ def main():
 
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
     if not w3.is_connected():
-        console.print(f"[red]✖ Node not reachable: {RPC_URL}[/red]")
+        console.print("[red]Node not reachable: " + RPC_URL + "[/red]")
         console.print("[dim]  Start it: .\\scripts\\run_local_node.ps1[/dim]")
         sys.exit(1)
 
@@ -60,16 +61,16 @@ def main():
     from src.config import CONTRACT_ADDRESS
 
     if not CONTRACT_ADDRESS:
-        console.print("[yellow]⚠ Contract not deployed — deploying now...[/yellow]")
+        console.print("[yellow]Contract not deployed - deploying now...[/yellow]")
         from scripts.deploy import deploy
         deploy()
 
-    console.print("\n[bold green]✔ All prerequisites met — starting pipeline...[/bold green]\n")
+    console.print("\n[bold green]All prerequisites met - starting pipeline...[/bold green]\n")
 
     # Run the pipeline in demo mode
     from pipeline import run_pipeline
 
-    run_pipeline("data/sample_face.jpg", demo_mode=True)
+    run_pipeline(sample_img, demo_mode=True)
 
 
 if __name__ == "__main__":

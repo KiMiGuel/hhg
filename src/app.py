@@ -394,6 +394,8 @@ def live_screen():
     """One-click live run from the dashboard: real SerpApi + blockchain."""
     from scripts.live_run import main as live_main
 
+    sample_img = os.environ.get("HHG_SAMPLE_IMAGE", "data/sample_face.jpg")
+
     console.print(
         Panel(
             "[bold cyan]One-click LIVE run[/bold cyan]\n"
@@ -402,13 +404,22 @@ def live_screen():
             border_style="cyan",
         )
     )
+    if not os.path.exists(sample_img):
+        console.print(f"[yellow]⚠ Sample image not found ({sample_img}).[/yellow]")
+        console.print("[dim]  Set HHG_SAMPLE_IMAGE=<path> or use 'Capture from webcam'.[/dim]")
+        sample_img = None
+
     mode = select_option(
         "Choose input source",
-        ["Use data/sample_face.jpg", "Capture from webcam", "Cancel"],
+        [f"Use {sample_img}" if sample_img else "Capture from webcam (no sample image)", "Capture from webcam", "Cancel"],
         default=0,
         allow_esc=True,
     )
     if mode is None or mode == 2:
+        return
+    if mode == 0 and not sample_img:
+        console.print("[yellow]⚠ No sample image available. Use 'Capture from webcam' or set HHG_SAMPLE_IMAGE.[/yellow]")
+        pause()
         return
 
     argv_backup = sys.argv[:]
@@ -423,7 +434,7 @@ def live_screen():
         if chain_mode == 1:
             sys.argv.append("--fresh-chain")
         if mode == 0:
-            sys.argv += ["--image", "data/sample_face.jpg"]
+            sys.argv += ["--image", sample_img]
         else:
             sys.argv.append("--camera")
         code = live_main()

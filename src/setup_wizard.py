@@ -105,7 +105,7 @@ def run_setup():
     serpapi_ok = _check_serpapi()
 
     console.print("\n[bold]6. Sample image[/bold]")
-    sample = "data/sample_face.jpg"
+    sample = os.environ.get("HHG_SAMPLE_IMAGE", "data/sample_face.jpg")
     if os.path.exists(sample):
         console.print(f"[green]✔[/green] Sample image: {sample}")
     else:

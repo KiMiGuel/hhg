@@ -115,6 +115,36 @@ hhg/
 └── .env.example
 ```
 
+## Dataset setup
+
+**No images are shipped with this repository.** All eval corpora, demo seeds, and
+test fixtures are generated on demand by the scripts below. This keeps the repo
+tiny and avoids redistributing third-party portraits.
+
+```bash
+# Accuracy corpus (12 public figures + 3 AI-generated abstain faces)
+python scripts/build_test_corpus.py
+
+# Hardness corpus (blur / low-JPEG / low-light / noise / rotate / small)
+python scripts/hard_eval.py
+```
+
+After running `build_test_corpus.py`, the accuracy benchmark will work locally:
+
+```bash
+python scripts/master_accuracy.py --quick      # needs data/eval/
+```
+
+The face-detection tests (`tests/test_face_detection_real.py`) require a
+separate `data/internet_test/` corpus of real-world images. They are
+**skipped automatically** when the corpus is absent — no action required
+unless you want those tests to run.
+
+For demo/smoke-test runs, place any face image at `data/sample_face.jpg` or set
+the `HHG_SAMPLE_IMAGE` environment variable (see `.env.example`).
+
+---
+
 ## One-Click Run
 
 The fastest way to run the full pipeline is the `run_live_pipeline.bat` at the
@@ -615,7 +645,7 @@ hhg/
 â”œâ”€â”€ CODE_OF_CONDUCT.md
 â”œâ”€â”€ SECURITY.md
 â”œâ”€â”€ README.md                     # (this file)
-â”œâ”€â”€ data/                         # Sample images, eval corpus, hard-cam variants
+â”œâ”€â”€ data/                         # Generated on demand (see Dataset setup); not shipped in repo
 â”œâ”€â”€ src/                          # face_engine, web_search, platform_profiles, ...
 â”œâ”€â”€ scripts/                      # master_accuracy, accuracy_eval, live_run, hard_eval, ...
 â”‚   â””â”€â”€ dev/                      # dev / reproducibility helpers
