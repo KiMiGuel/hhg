@@ -35,10 +35,53 @@ BANNER = (
 )
 
 
+def _download_image_url(url: str, dest: str) -> str:
+    """Download an image from any public URL (Instagram/YouTube/Facebook CDN,
+    news articles, Wikipedia, any direct image link).
+
+    Raises ValueError when the URL does not serve an image.
+    """
+    import os
+    from datetime import datetime
+
+    import requests
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+        )
+    }
+    resp = requests.get(url, timeout=30, headers=headers)
+    resp.raise_for_status()
+    ctype = resp.headers.get("content-type", "")
+    is_img = ("image" in ctype or
+              resp.content[:3] in (b"\xff\xd8\xff", b"\x89PNG"))
+    if not is_img:
+        raise ValueError(
+            f"URL does not point to an image (content-type={ctype or 'unknown'})")
+    if not dest:
+        dest = os.path.join(
+            "data", "captured_from_url",
+            f"url_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    with open(dest, "wb") as f:
+        f.write(resp.content)
+    return dest
+
+
 def cmd_run(args):
     from pipeline import run_pipeline
 
-    run_pipeline(args.image, demo_mode=args.demo, face_index=args.face)
+    image = getattr(args, "image", None)
+    if getattr(args, "url", None):
+        with console.status("Downloading image from URL..."):
+            image = _download_image_url(args.url, "")
+        console.print(f"[green]✔[/green] Downloaded image -> [bold]{image}[/bold]")
+    if not image:
+        console.print("[red]✖ Provide an image path or --url <image-url>[/red]")
+        sys.exit(2)
+    run_pipeline(image, demo_mode=args.demo, face_index=args.face)
 
 
 def cmd_live(args):
@@ -49,6 +92,11 @@ def cmd_live(args):
         live_args = ["live_run.py"]
         if args.image:
             live_args.extend(["--image", args.image])
+        if getattr(args, "image_url", None):
+            with console.status("Downloading image from URL..."):
+                downloaded = _download_image_url(args.image_url, "")
+            console.print(f"[green]✔[/green] Downloaded image -> [bold]{downloaded}[/bold]")
+            live_args.extend(["--image", downloaded])
         if args.camera:
             live_args.append("--camera")
         if args.camera_index is not None:
@@ -65,6 +113,8 @@ def cmd_live(args):
             live_args.append("--no-auto-node")
         if args.force_deploy:
             live_args.append("--force-deploy")
+        if args.no_chain:
+            live_args.append("--no-chain")
         sys.argv = live_args
         code = live_main()
         if code:
@@ -184,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     live_p = sub.add_parser("live", help="one-click REAL live run (camera/image + SerpApi + blockchain)")
     live_p.add_argument("--image", help="path to input face image")
+    live_p.add_argument("--image-url", dest="image_url",
+                        help="download the face image from a public URL "
+                             "(Instagram/YouTube/Facebook/news images) and run on it")
     live_p.add_argument("--camera", action="store_true", help="capture from webcam before running")
     live_p.add_argument("--camera-index", type=int, default=0, help="OpenCV camera index")
     live_p.add_argument("--output", default="data/captured_face.jpg", help="camera capture output path")
@@ -192,10 +245,14 @@ def build_parser() -> argparse.ArgumentParser:
     live_p.add_argument("--visible-node", action="store_true", help="start Anvil visibly if auto-starting")
     live_p.add_argument("--no-auto-node", action="store_true", help="do not auto-start local Anvil")
     live_p.add_argument("--force-deploy", action="store_true", help="redeploy FaceRegistry even if current address is valid")
+    live_p.add_argument("--no-chain", action="store_true", help="skip Anvil/blockchain entirely (face + web search only)")
     live_p.set_defaults(func=cmd_live)
 
     run_p = sub.add_parser("run", help="run the full 4-stage pipeline on an image")
-    run_p.add_argument("image", help="path to the input face image")
+    run_p.add_argument("image", nargs="?", help="path to the input face image")
+    run_p.add_argument(
+        "--url", dest="url", default=None,
+        help="download the face image from a public URL instead of a local path")
     run_p.add_argument(
         "--demo", action="store_true", help="use pre-recorded search result (no SerpApi/internet)"
     )

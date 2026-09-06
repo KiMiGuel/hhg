@@ -278,7 +278,9 @@ def pick_face_interactively(face_engine: FaceEngine, input_image_path: str, face
         console.print("[red]Invalid choice — try again.[/red]")
 
 
-def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int | None = None):
+def run_pipeline(input_image_path: str, demo_mode: bool = False,
+                 face_index: int | None = None, skip_chain: bool = False,
+                 show_gui: bool = True):
     # ---- Visual header + stage progress ----
     console.print(render_pipeline_header())
     if demo_mode:
@@ -325,10 +327,10 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         )
 
     # Show OpenCV windows with bounding box + landmarks (auto-close after 2s, skip in demo mode)
-    if not demo_mode:
+    if show_gui and not demo_mode:
         show_face_detection(input_image_path, bbox, auto_close_ms=2000)
     else:
-        console.print("[dim]  (OpenCV windows skipped in demo mode)[/dim]")
+        console.print("[dim]  (OpenCV windows skipped)[/dim]")
 
     # Display ASCII art face + hash panel side by side
     console.print(render_face_panel(crop_path, "Detected Face"))
@@ -492,6 +494,95 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
         if lens_result is not None:
             console.print(render_identity_block(lens_result, face_hash=face_hash))
 
+        # ------------------------------------------- Exact-image matching
+        # Perceptual-hash the uploaded image and compare against every Lens
+        # match thumbnail -> finds the EXACT same image on other platforms.
+        # These matches also feed back into the scoring layer: any candidate
+        # whose `link` appears in the exact-image results is tagged
+        # "exact_image_match" so the vote scorer can apply its +200 proof-level
+        # boost and reselect immediately in the same run.
+        _exact = []
+        try:
+            from src.image_match import find_exact_matches
+            from dataclasses import replace as _dc_replace
+            if lens_result is not None and lens_result.visual_matches:
+                with console.status("[bold green]Exact-image matching (perceptual hash over thumbnails)..."):
+                    _exact = find_exact_matches(
+                        input_image_path, lens_result.visual_matches)
+                if _exact:
+                    tops = ", ".join(
+                        f"{m['platform']} (d={m['hamming']})" for m in _exact[:3])
+                    console.print(
+                        f"[green]✔[/green] Exact image also found on: [bold]{tops}[/bold]")
+
+                    # Re-tag visual matches whose link was confirmed as exact
+                    # so subsequent re-selections (and the audit trail) know
+                    # these are pixel-identical matches, not just text matches.
+                    exact_link_set = {(m.get("link") or "").lower() for m in _exact}
+                    if exact_link_set:
+                        new_visual = []
+                        for m in lens_result.visual_matches:
+                            if (m.link or "").lower() in exact_link_set:
+                                tagged_reason = (m.reason or "") + " | exact_image_match"
+                                new_visual.append(_dc_replace(m, reason=tagged_reason))
+                            else:
+                                new_visual.append(m)
+                        lens_result = _dc_replace(
+                            lens_result, visual_matches=new_visual)
+                        # Re-run the selector on the tagged visual matches so
+                        # the exact-image proof affects the CURRENT selected
+                        # identity, not just future cache replays/reports.
+                        try:
+                            raw_visual = [m.to_dict() for m in new_visual]
+                            selected, all_visual, by_domain, kg_match = search_engine._select(
+                                raw_visual,
+                                lens_result.knowledge_graph.to_dict() if lens_result.knowledge_graph else None,
+                                lens_result.policy,
+                            )
+                            lens_result = _dc_replace(
+                                lens_result,
+                                selected=selected,
+                                visual_matches=all_visual,
+                                candidates_by_domain=by_domain,
+                                knowledge_graph=kg_match,
+                                visual_match_count=len(all_visual),
+                                platform_profiles=search_engine._maybe_corroborate(selected),
+                            )
+                            match_data = lens_result
+                        except Exception:
+                            # Reporting still includes exact_image_matches even
+                            # if re-selection fails for an unexpected reason.
+                            pass
+        except Exception as _ex_exc:
+            console.print(f"[dim]  exact-image matching unavailable: {_ex_exc}[/dim]")
+
+        # ------------------------------------------- Biometric re-verification
+        # Compare the query face embedding against the FINAL selected
+        # candidate's profile photos (Wikipedia portrait / og:image of social
+        # profiles). This intentionally runs AFTER exact-image re-selection so
+        # the biometric verdict always corresponds to the final identity.
+        # Never blocks or fails the pipeline: any problem -> "UNKNOWN".
+        _bio = None
+        try:
+            from src.biometric_verify import BiometricVerifier, candidate_photo_urls
+            sel_title = str(getattr(lens_result.selected, "title", "") or "")
+            if (face_engine.last_embedding is not None
+                    and sel_title
+                    and sel_title != "No confident identification"):
+                with console.status("[bold green]Biometric re-verification (fetching candidate profile photos)..."):
+                    _photo_urls = candidate_photo_urls(
+                        str(getattr(lens_result.selected, "link", "") or ""),
+                        lens_result.platform_profiles)
+                    _bio = BiometricVerifier(face_engine).verify(
+                        face_engine.last_embedding, _photo_urls)
+                console.print(
+                    f"[green]✔[/green] Biometric re-verification: "
+                    f"[bold]{_bio['biometric_confidence']}[/bold] "
+                    f"(similarity={_bio['similarity']}, photos checked={_bio['checked']})"
+                )
+        except Exception as _bio_exc:
+            console.print(f"[dim]  biometric re-verification unavailable: {_bio_exc}[/dim]")
+
         # No-identity from Lens.
         if getattr(lens_result, "visual_match_count", 0) == 0:
             elapsed2 = time.perf_counter() - t_stage2
@@ -532,8 +623,45 @@ def run_pipeline(input_image_path: str, demo_mode: bool = False, face_index: int
                 "post_url": str(match_data["link"]),
             }
         )
+    if _bio:
+        report["stage2"]["biometric"] = _bio
+    if _exact:
+        report["stage2"]["exact_image_matches"] = _exact
 
     # ---------------------------------------------------------------- Stage 3
+    if skip_chain:
+        # Chain-skipped mode (used by accuracy eval / rapid iteration):
+        # nothing is anchored on-chain; the report is still emitted.
+        elapsed2 = time.perf_counter() - t_stage2
+        console.print(f"[dim]  Stage 2 completed in {elapsed2:.2f}s[/dim]")
+        report["stage3"] = {
+            "fingerprint": "",
+            "already_anchored": False,
+            "skipped": True,
+            "reason": "chain skipped (--no-chain)",
+        }
+        report["stage4"] = {
+            "verification": "SKIPPED",
+            "tamper_detected": False,
+            "skipped": True,
+            "reason": "chain skipped (--no-chain)",
+        }
+        report["network"]["chain_id"] = "skipped"
+        report_path = write_report(report)
+        console.print(
+            f"\n[bold yellow]>> Audit report saved to:[/bold yellow] [bold]{report_path}[/bold]"
+        )
+        console.print(
+            Panel.fit(
+                "[bold green]PIPELINE COMPLETED (chain skipped)[/bold green] "
+                "[dim]-- face detection + web search + audit report[/dim]",
+                border_style="green",
+            )
+        )
+        if lens_result is not None:
+            console.print(render_identity_block(lens_result, face_hash=face_hash))
+        return report
+
     t_stage3 = time.perf_counter()
     console.print(
         "\n[bold yellow]>> [STAGE 3] Cryptographic Fingerprinting & Blockchain Anchoring[/bold yellow]"

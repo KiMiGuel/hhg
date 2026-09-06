@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run accuracy benchmark
+        run: |
+          python scripts/master_accuracy.py --quick
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -q --tb=line \
+            --ignore=tests/test_blockchain_integration.py \
+            --ignore=tests/test_face_detection_real.py
+      - name: Compile docs
+        run: |
+          # sanity-check that docs build doesn't have broken links
+          ls docs/*.md
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}

@@ -1,0 +1,161 @@
+{
+  "eval_01.jpg": {
+    "name": "Satya Nadella",
+    "aliases": [
+      "Satya Nadella"
+    ],
+    "kind": "public",
+    "wiki_title": "Satya_Nadella",
+    "bytes": 181870,
+    "source": "wikipedia:Satya_Nadella",
+    "face_confidence": 0.922
+  },
+  "eval_02.jpg": {
+    "name": "Virat Kohli",
+    "aliases": [
+      "Virat Kohli"
+    ],
+    "kind": "public",
+    "wiki_title": "Virat_Kohli",
+    "bytes": 79251,
+    "source": "wikipedia:Virat_Kohli",
+    "face_confidence": 0.312
+  },
+  "eval_03.jpg": {
+    "name": "Salman Khan",
+    "aliases": [
+      "Salman Khan"
+    ],
+    "kind": "public",
+    "wiki_title": "Salman_Khan",
+    "bytes": 40036,
+    "source": "wikipedia:Salman_Khan",
+    "face_confidence": 0.943
+  },
+  "eval_04.jpg": {
+    "name": "Manoj Bajpayee",
+    "aliases": [
+      "Manoj Bajpayee"
+    ],
+    "kind": "public",
+    "wiki_title": "Manoj_Bajpayee",
+    "bytes": 80221,
+    "source": "wikipedia:Manoj_Bajpayee",
+    "face_confidence": 0.952
+  },
+  "eval_05.jpg": {
+    "name": "Sundar Pichai",
+    "aliases": [
+      "Sundar Pichai"
+    ],
+    "kind": "public",
+    "wiki_title": "Sundar_Pichai",
+    "bytes": 180064,
+    "source": "wikipedia:Sundar_Pichai",
+    "face_confidence": 0.924
+  },
+  "eval_07.jpg": {
+    "name": "Barack Obama",
+    "aliases": [
+      "Barack Obama"
+    ],
+    "kind": "public",
+    "wiki_title": "Barack_Obama",
+    "bytes": 153242,
+    "source": "wikipedia:Barack_Obama",
+    "face_confidence": 0.953
+  },
+  "eval_08.jpg": {
+    "name": "Narendra Modi",
+    "aliases": [
+      "Narendra Modi"
+    ],
+    "kind": "public",
+    "wiki_title": "Narendra_Modi",
+    "bytes": 38154,
+    "source": "wikipedia:Narendra_Modi",
+    "face_confidence": 0.936
+  },
+  "eval_09.jpg": {
+    "name": "Taylor Swift",
+    "aliases": [
+      "Taylor Swift"
+    ],
+    "kind": "public",
+    "wiki_title": "Taylor_Swift",
+    "bytes": 99036,
+    "source": "wikipedia:Taylor_Swift",
+    "face_confidence": 0.933
+  },
+  "eval_10.jpg": {
+    "name": "Cristiano Ronaldo",
+    "aliases": [
+      "Cristiano Ronaldo"
+    ],
+    "kind": "public",
+    "wiki_title": "Cristiano_Ronaldo",
+    "bytes": 196391,
+    "source": "wikipedia:Cristiano_Ronaldo",
+    "face_confidence": 0.946
+  },
+  "eval_11.jpg": {
+    "name": "Lionel Messi",
+    "aliases": [
+      "Lionel Messi"
+    ],
+    "kind": "public",
+    "wiki_title": "Lionel_Messi",
+    "bytes": 52188,
+    "source": "wikipedia:Lionel_Messi",
+    "face_confidence": 0.948
+  },
+  "eval_12.jpg": {
+    "name": "Tom Cruise",
+    "aliases": [
+      "Tom Cruise"
+    ],
+    "kind": "public",
+    "wiki_title": "Tom_Cruise",
+    "bytes": 116670,
+    "source": "wikipedia:Tom_Cruise",
+    "face_confidence": 0.929
+  },
+  "eval_06.jpg": {
+    "name": "Elon Musk",
+    "aliases": [
+      "Elon Musk"
+    ],
+    "kind": "public",
+    "wiki_title": "Elon_Musk",
+    "face_confidence": 0.925,
+    "bytes": 122836,
+    "source": "wikipedia:Elon_Musk"
+  },
+  "eval_13.jpg": {
+    "name": null,
+    "aliases": [],
+    "kind": "abstain",
+    "wiki_title": "",
+    "face_confidence": 0.749,
+    "bytes": 136548,
+    "source": "thispersondoesnotexist.com"
+  },
+  "eval_14.jpg": {
+    "name": null,
+    "aliases": [],
+    "kind": "abstain",
+    "wiki_title": "",
+    "face_confidence": 0.768,
+    "bytes": 153417,
+    "source": "thispersondoesnotexist.com"
+  },
+  "eval_15.jpg": {
+    "name": null,
+    "aliases": [],
+    "kind": "abstain",
+    "wiki_title": "",
+    "face_confidence": 0.76,
+    "bytes": 144252,
+    "source": "thispersondoesnotexist.com"
+  }
+}

@@ -133,9 +133,12 @@ def _populated():
     }
 
 
-def test_cascade_uses_first_engine_with_matches(tmp_cache):
-    """If the FIRST engine returns matches, the cascade must stop and NOT call
-    the remaining engines."""
+def test_parallel_engines_all_queried_and_merged(tmp_cache):
+    """The parallel engine design queries ALL 4 reverse-image engines
+    concurrently (google_lens, google_lens social, google_reverse_image,
+    bing_visual_search) and merges their visual_matches, deduped by link.
+    This is the accuracy win: more engines = more coverage = 90%+ hit rate
+    on camera/webcam faces that a single Lens call would miss."""
     eng = WebSearchEngine("test-key")
     engines_seen = []
 
@@ -145,20 +148,46 @@ def test_cascade_uses_first_engine_with_matches(tmp_cache):
 
     with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request), \
          patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
-        eng.search_face_on_web(
+        result = eng.search_face_on_web(
             "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
         )
-    assert engines_seen == ["google_lens"]
+    # Every engine was queried (parallel, so wall-time ~ single engine).
+    assert len(engines_seen) == 4
+    assert "google_reverse_image" in engines_seen
+    assert "bing_visual_search" in engines_seen
+    # All four engines return the SAME profile -> merged to 1 unique match.
+    assert result.visual_match_count == 1
+    assert "Satya Nadella" in result.selected.title
 
 
-def test_cascade_falls_through_when_first_empty(tmp_cache):
-    """If the first engine returns empty, the cascade tries the next engine."""
+def test_parallel_merge_deduplicates_same_link(tmp_cache):
+    """Same link surfaced by 2+ engines must be merged into ONE match with a
+    cross-engine confirmation stamp (x_engines boost in the scorer)."""
     eng = WebSearchEngine("test-key")
-    engines_seen = []
 
     def fake_request(url, policy="social", extra_params=None):
-        engines_seen.append((extra_params or {}).get("engine"))
-        if len(engines_seen) < 2:
+        return _populated()
+
+    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request), \
+         patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
+        result = eng.search_face_on_web(
+            "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
+        )
+    assert result.visual_match_count == 1
+    # The cross-engine confirmation is stamped on the merged visual match
+    # (the scorer turns it into an +10-per-extra-engine boost).
+    assert any("x_engines=4" in m.reason for m in result.visual_matches)
+
+
+def test_parallel_merge_uses_populated_engine_when_others_empty(tmp_cache):
+    """Even if 3 engines return nothing, the one with matches is enough."""
+    eng = WebSearchEngine("test-key")
+    calls = {"n": 0}
+
+    def fake_request(url, policy="social", extra_params=None):
+        calls["n"] += 1
+        # First engine returns empty, the rest return matches.
+        if calls["n"] == 1:
             return _empty()
         return _populated()
 
@@ -167,12 +196,12 @@ def test_cascade_falls_through_when_first_empty(tmp_cache):
         result = eng.search_face_on_web(
             "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
         )
-    assert engines_seen[:2] == ["google_lens", "google_lens"]
     assert result.visual_match_count == 1
+    assert "Satya Nadella" in result.selected.title
 
 
 def test_cascade_tries_all_engines_when_all_empty(tmp_cache):
-    """If every engine returns empty, the cascade must have tried all of them
+    """If every engine returns empty, all 4 must have been queried
     (so we know we did our best before falling back to hint-based search)."""
     eng = WebSearchEngine("test-key")
     engines_seen = []
@@ -186,7 +215,7 @@ def test_cascade_tries_all_engines_when_all_empty(tmp_cache):
         result = eng.search_face_on_web(
             "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
         )
-    # All 4 cascade engines should have been tried.
+    # All 4 parallel engines should have been tried.
     assert "google_lens" in engines_seen
     assert "google_reverse_image" in engines_seen
     assert "bing_visual_search" in engines_seen

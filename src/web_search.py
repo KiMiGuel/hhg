@@ -45,9 +45,17 @@ SOCIAL_PLATFORMS = [
     "youtube.com",
     "pinterest.com",
     "tiktok.com",
+    "threads.net",
+    "quora.com",
+    "medium.com",
+    "flickr.com",
+    "tumblr.com",
+    "snapchat.com",
+    "substack.com",
 ]
 
 OFFICIAL_TLDS_HINT = (".gov", ".edu", ".org", ".io")
+EXACT_IMAGE_SCORE_BOOST = 200
 
 CATBOX_UPLOAD_URL = "https://catbox.moe/user/api.php"
 TMPFILES_UPLOAD_URL = "https://tmpfiles.org/api/v1/upload"
@@ -145,6 +153,8 @@ class LensMatch:
     source: str
     platform: str
     reason: str
+    # Lens thumbnail URL — used by exact-image matching (perceptual hash).
+    thumbnail: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -175,6 +185,8 @@ class LensResult:
     lens_ms: float = 0.0
     upload_host: str = ""
     raw_response_at: str = ""
+    # Cross-platform corroboration: {"instagram": url, "youtube": url, ...}
+    platform_profiles: dict[str, str] = field(default_factory=dict)
 
     # --- dict-like access for backward compatibility (pipeline.py + verify.py) ---
     # The legacy dict shape had flat fields `title`/`link`/`platform` for the
@@ -210,6 +222,7 @@ class LensResult:
         d["candidates_by_domain"] = {
             k: [m.to_dict() for m in v] for k, v in self.candidates_by_domain.items()
         }
+        d["platform_profiles"] = dict(self.platform_profiles or {})
         return d
 
 
@@ -268,6 +281,18 @@ _NAME_NONNAME_FOLLOWWORDS = frozenset({
     "movie", "film", "show", "series", "episode", "scene", "clip", "video",
     "interview", "biography", "profile", "story", "feature", "article",
     "photo", "image", "throwback", "and", "or", "but", "plus",
+    # New: editorial verbs & events that always follow a name in news titles
+    "announces", "announced", "reveal", "launches", "launched",
+    "unveils", "unveiled", "confirms", "confirmed", "denies", "denied",
+    "rise", "rises", "legacy", "story", "stories", "secret", "secrets",
+    "net", "worth", "salary", "wage", "ages", "age", "ranking", "ranked",
+    "live", "concert", "tour", "stadium", "arena", "set", "list", "ranking",
+    "goals", "assists", "stats", "highlights", "moments", "plays",
+    "wins", "won", "loses", "lost", "defeats", "defeated",
+    "killed", "arrested", "released", "scores", "scored",
+    "trending", "viral", "today", "this", "last", "next", "first", "new",
+    "vs", "versus", "against",
+    "leaks", "leaked", "spotted", "seen", "caught",
 })
 
 
@@ -289,6 +314,166 @@ def _is_prose_followed_name(name: str, full_title: str) -> bool:
     return False
 
 
+# ----------------------------------------------------------------- platforms
+# Per-platform person-name extraction. Instagram/YouTube/Facebook/X/TikTok/
+# LinkedIn titles do NOT follow the "First Last - Wikipedia" convention, so the
+# strict generic validator rejects them and social matches never contribute
+# votes to name-cluster voting. These extractors turn platform-specific title
+# shapes into canonical "First Last" names so social profiles vote like any
+# other match (and can win when they carry the strongest signal).
+PLATFORM_DOMAINS = {
+    "instagram": ("instagram.com", "instagr.am", "threads.net"),
+    "youtube": ("youtube.com", "youtu.be"),
+    "facebook": ("facebook.com", "fb.com", "fb.watch"),
+    "x": ("twitter.com", "x.com"),
+    "tiktok": ("tiktok.com",),
+    "linkedin": ("linkedin.com",),
+    "reddit": ("reddit.com", "redd.it"),
+    "imdb": ("imdb.com",),
+    "wikipedia": ("wikipedia.org", "wikidata.org", "wikiwand.com"),
+    "pinterest": ("pinterest.com", "pin.it"),
+}
+
+# Site-name tokens that show up as the "name" of a platform's own page
+# ("Instagram (@instagram) • ...") — never a person.
+_PLATFORM_NAME_BLOCKLIST = frozenset({
+    "instagram", "youtube", "facebook", "twitter", "linkedin",
+    "tiktok", "threads", "reels", "explore", "official", "news",
+})
+
+
+def _platform_of(link: str) -> str:
+    """Map a match URL to its platform key ('' when unknown)."""
+    low = (link or "").lower()
+    if not low:
+        return ""
+    for plat, domains in PLATFORM_DOMAINS.items():
+        if any(d in low for d in domains):
+            return plat
+    return ""
+
+
+def _clean_platform_name(raw: str) -> str:
+    """Sanitize an extracted platform name into 'First Last' form, or ''.
+
+    Enforces 2-4 words, Capitalized words (no ALL-CAPS shouting), no
+    non-name leadwords, and cuts caption/description separators.
+    """
+    name = (raw or "").strip().strip('"').strip("'").strip()
+    if not name:
+        return ""
+    name = _strip_honorifics(name)
+    # Cut at caption/description/role separators
+    for sep in (":", "•", "|", "—", "–"):
+        if sep in name:
+            name = name.split(sep)[0].strip()
+    name = re.sub(
+        r"\s+-\s+(about|home|profile|videos|photos|watch|live|official|reel|topics?)$",
+        "", name, flags=re.IGNORECASE)
+    words = [w for w in name.split() if w]
+    if not (2 <= len(words) <= 4):
+        return ""
+
+    def _core(w: str) -> str:
+        return w.strip(".,:;!?()[]\"'\u2019\u201c\u201d")
+
+    if not all(_core(w)[:1].isupper() for w in words):
+        return ""
+    # Reject headline-style ALL-CAPS shouting (allow Unicode lowercase chars
+    # after the first capital: 'Céline' is fine, 'SHAKE IT OFF' is not).
+    if any(_core(w) == _core(w).upper() and any(c.isalpha() for c in _core(w)) for w in words):
+        return ""
+    if _core(words[0]).lower() in _NAME_NONNAME_LEADWORDS:
+        return ""
+    if _core(words[0]).lower() in _PLATFORM_NAME_BLOCKLIST:
+        return ""
+    return name
+
+
+def _extract_platform_name(title: str, platform: str) -> str:
+    """Return the canonical 'First Last' person name encoded in a
+    platform-specific match title, or '' when the title yields no name.
+
+    Examples:
+      'Virat Kohli (@virat.kohli) • Instagram photos and videos' -> 'Virat Kohli'
+      'Virat Kohli - Topic - YouTube'                            -> 'Virat Kohli'
+      'Satya Nadella | Facebook'                                 -> 'Satya Nadella'
+      'Satya Nadella - Chairman and CEO at Microsoft | LinkedIn' -> 'Satya Nadella'
+      'Elon Musk (@elonmusk) / X'                                -> 'Elon Musk'
+      'Taylor Swift on Instagram: "surprise!!"'                  -> 'Taylor Swift'
+      '@handle • Instagram photos and videos'                    -> '' (handle only)
+    """
+    t = (title or "").strip()
+    if not t:
+        return ""
+    low = t.lower()
+
+    if platform == "instagram":
+        m = re.match(r"^(.*?)\s*\(@[A-Za-z0-9_.]+\)", t)
+        if m:
+            return _clean_platform_name(m.group(1))
+        m = re.match(r"^(.*?)\s+on Instagram\b", t, re.IGNORECASE)
+        if m:
+            return _clean_platform_name(m.group(1))
+        return ""
+
+    if platform == "youtube":
+        # 'Name (@handle) - YouTube' | 'Name - Topic' | 'Name - Topic - YouTube'
+        m = re.match(r"^(.*?)\s*\(@[A-Za-z0-9_.]+\)", t)
+        if m:
+            return _clean_platform_name(m.group(1))
+        for suffix in (" - youtube", " - topic", " – youtube", " – topic"):
+            if low.endswith(suffix):
+                return _clean_platform_name(t[: -len(suffix)])
+        return ""
+
+    if platform == "facebook":
+        for suffix in (" | facebook", " - facebook", " – facebook"):
+            if low.endswith(suffix):
+                return _clean_platform_name(t[: -len(suffix)])
+        return ""
+
+    if platform == "linkedin":
+        # 'Name - Role at Company | LinkedIn' -> keep the leading name segment
+        base = re.split(r"\s*\|\s*linkedin", t, maxsplit=1, flags=re.IGNORECASE)[0]
+        first = re.split(r"\s+[-–—]\s+", base, maxsplit=1)[0]
+        return _clean_platform_name(first)
+
+    if platform in ("x", "tiktok"):
+        # 'Name (@handle) / X' | 'Name (@handle) | TikTok'
+        m = re.match(r"^(.*?)\s*\(@[A-Za-z0-9_.]+\)", t)
+        if m:
+            return _clean_platform_name(m.group(1))
+        return ""
+
+    if platform == "imdb":
+        for suffix in (" - imdb", " – imdb"):
+            if low.endswith(suffix):
+                return _clean_platform_name(t[: -len(suffix)])
+        return ""
+
+    return ""
+
+
+
+# Unicode-aware capitalized word. Python's re supports \w which includes
+# Unicode letters; explicit class via [A-Z] + Unicode escape for capitals.
+# \p{Lu} requires the 'regex' module, so we approximate with a per-script
+# cover: A-Z + accented capitals + 4-byte supplementary capitals.
+_NAME_WORD_RE = r"[A-Z\u00C0-\u00D6\u00D8-\u00DE][A-Za-z\u00C0-\u024F'\-]{1,30}"
+
+
+def _strip_honorifics(title: str) -> str:
+    """Remove leading honorifics ('Dr. Anthony Fauci' -> 'Anthony Fauci')
+    and trailing generational suffixes ('Martin Luther King Jr.' stays but
+    'Name Jr.' keeps 'Jr' out of the extracted name via regex below)."""
+    t = (title or "").strip()
+    return re.sub(
+        r"^(dr|mr|mrs|ms|sir|madam|prof|professor|president|governor|senator|"
+        r"coach|capt|captain|sgt|lt|hon|rev|est)\.?\s+",
+        "", t, count=1, flags=re.IGNORECASE)
+
+
 def _looks_like_person(match, kg_title=None):
     """Return True iff the match looks like it is ABOUT a person.
     A match is a person match if any of:
@@ -307,6 +492,12 @@ def _looks_like_person(match, kg_title=None):
     if kg_title and kg_title.strip():
         if kg_title.lower() in title.lower():
             return True
+    # Platform-specific titles (Instagram/YT/FB/X/TikTok/LinkedIn/IMDb):
+    # a parseable person name in a platform-shaped title is a strong person
+    # signal ("Virat Kohli (@virat.kohli) • Instagram ..." -> 'Virat Kohli').
+    plat = _platform_of(link)
+    if plat and _extract_platform_name(title, plat):
+        return True
     # Wikipedia person URL: /wiki/First_Last (no underscores in body)
     if "/wiki/" in link:
         try:
@@ -321,9 +512,12 @@ def _looks_like_person(match, kg_title=None):
             pass
     # Personal-name title pattern: 2-3 capitalized words at the start.
     # Strict rules: leading word is a real name token, not a stopword; the
-    # words after the name (if any) are not editorial prose.
+    # words after the name (if any) are not editorial prose; no word is a
+    # headline-style ALL-CAPS token ('MUSK'S BLACK EYE' is a news headline,
+    # not a person page).
     if title:
-        m = re.match(r"^([A-Z][a-zA-Z'\-]{1,30}(?: [A-Z][a-zA-Z'\-]{1,30}){1,2})", title)
+        title = _strip_honorifics(title)
+        m = re.match(rf"^({_NAME_WORD_RE}(?: {_NAME_WORD_RE}){{1,2}})", title)
         if m:
             name = m.group(1)
             parts = name.split()
@@ -332,6 +526,9 @@ def _looks_like_person(match, kg_title=None):
                 # Reject any name whose first word is a non-name leadword
                 # ("Legendary Actor Robert Duvall" -> first word "Legendary").
                 if first in _NAME_NONNAME_LEADWORDS:
+                    return False
+                # Reject headline-style ALL-CAPS words ("MUSK'S BLACK EYE").
+                if any(p.isupper() for p in parts):
                     return False
                 # Reject if the title continues with editorial prose after the
                 # extracted name ("Manoj Bajpayee in conversation").
@@ -343,6 +540,7 @@ def _looks_like_person(match, kg_title=None):
 def _score_visual_match(match, kg_title=None):
     link = _match_field(match, "link").lower()
     title = _match_field(match, "title")
+    reason_field = _match_field(match, "reason") or ""
     score = 0; reasons = []
     # Hard filter: matches that look like random articles, products, or unrelated
     # pages (no personal-name title, no /wiki/First_Last URL, no KG-title match) score
@@ -367,6 +565,25 @@ def _score_visual_match(match, kg_title=None):
         if "tiktok.com" in link: score -= 5; reasons.append("tiktok_penalty-5")
     if kg_title and _title_contains_kg(title, kg_title): score += 50
     if re.match(r"^[A-Z][a-z]+ [A-Z][a-z]+", title) and any(kw in title.lower() for kw in ("ceo","founder","actor","singer","director","president","scientist")): score += 10
+    # Cross-engine confirmation boost: if the same URL was surfaced by 2+
+    # different search engines (Lens, Bing, Reverse Image, etc.) the match
+    # is much more reliable. +10 per extra engine beyond the first.
+    m_eng = re.search(r"x_engines=(\d+)", reason_field)
+    if m_eng:
+        try:
+            hits = max(1, int(m_eng.group(1)))
+            if hits >= 2:
+                boost = 10 * (hits - 1)
+                score += boost
+                reasons.append(f"x_engines+{boost}")
+        except Exception:
+            pass
+    # Exact-image match boost: the engine found the SAME photo (dHash confirmed).
+    # This is a very strong signal, but still guarded by _looks_like_person above
+    # so random non-person articles cannot be promoted by a coincidental thumbnail.
+    if "exact_image_match" in reason_field:
+        score += EXACT_IMAGE_SCORE_BOOST
+        reasons.append(f"exact_image+{EXACT_IMAGE_SCORE_BOOST}")
     return score, "+".join(reasons) if reasons else "base"
 
 def _classify_link(link: str) -> str:
@@ -384,13 +601,23 @@ def _classify_link(link: str) -> str:
 
 def _match_from_visual(rank: int, raw: dict[str, Any], reason: str) -> LensMatch:
     link = raw.get("link", "") or ""
+    # Propagate the cross-engine hit count into the reason so the scoring
+    # layer can reward entries found by multiple engines.
+    engine_hits = raw.get("_engine_hits") or 0
+    raw_reason = (raw.get("reason") or "") if isinstance(raw, dict) else ""
+    base_reason = reason or raw_reason
+    if raw_reason and raw_reason not in base_reason:
+        base_reason = f"{base_reason} | {raw_reason}" if base_reason else raw_reason
+    if engine_hits and engine_hits > 1:
+        base_reason = (base_reason or "") + f" | x_engines={engine_hits}"
     return LensMatch(
         rank=rank,
         title=raw.get("title", "Visual Match"),
         link=link,
         source=raw.get("source", "Web"),
         platform=_classify_link(link) or "Web",
-        reason=reason,
+        reason=base_reason,
+        thumbnail=raw.get("thumbnail", "") or raw.get("image_thumbnail", "") or "",
     )
 
 
@@ -618,12 +845,19 @@ class WebSearchEngine:
     WIKI_MEMBER_WEIGHT = 15  # cluster contains a wikipedia/imdb profile page
     CONSENSUS_WEIGHT = 25    # name also seen in the other crop's matches
     # Minimum cluster score for a non-consensus pick to be confident.
-    # A single Wikipedia page for a random person scores ~105 (90 base + 15 wiki).
+    # A single Wikipedia page for a real public figure scores ~105 (90 base + 15 wiki).
     # A real identity has 2+ votes (8 pts each) + wiki (15) + best member score.
-    # 150 = roughly: 90 (wiki) + 15 (wiki bonus) + 8*5 (5 votes) + small buffer.
-    # This prevents a singleton .edu or LinkedIn profile from winning.
-    MIN_CLUSTER_SCORE = 150
+    # 120 = roughly: 90 (wiki) + 15 (wiki bonus) + 8*2 (2 votes) + small buffer.
+    # Lowered from 150: 150 was over-abstaining on real public figures whose
+    # cluster score is 130-145 (Wikipedia + 1-2 corroborations but no name overlap).
+    MIN_CLUSTER_SCORE = 120
+    # Singleton-vote clusters (name appears in exactly 1 title, no consensus)
+    # must clear the stricter pre-existing bar: one title mention is
+    # indistinguishable from coincidence on random/AI faces.
+    MIN_CLUSTER_SCORE_SINGLETON = 150
     KG_TITLE_WEIGHT = 50     # cluster name aligns with the KG entity title
+    EXACT_IMAGE_BOOST = 200  # MASSIVE boost when dHash confirms exact image match
+    CROSS_PLATFORM_BONUS = 15  # per extra platform corroborating the name (n_platforms-1)
 
     def _candidate_names(self, matches) -> list[str]:
         """Ordered unique strict person-names extracted from match titles."""
@@ -689,13 +923,26 @@ class WebSearchEngine:
             # Domain diversity: a real identity's name appears across multiple
             # domains (LinkedIn + Wikipedia + news). A singleton on one domain
             # is usually a false positive.
-            num_domains = len({m.platform for m in members})
+            platforms = {m.platform for m in members if m.platform}
+            num_domains = len(platforms)
             domain_bonus = 10 if num_domains >= 2 else 0
+            # Cross-platform bonus: a real identity is typically found on 3+
+            # distinct platforms (Instagram, YouTube, Wikipedia, LinkedIn...).
+            # 15 points per platform beyond the first.
+            cross_platform_bonus = max(0, (num_domains - 1)) * self.CROSS_PLATFORM_BONUS
             consensus = bool(other_crop_names) and any(
                 self._name_match(name, o) for o in other_crop_names)
             kg_bonus = 0
             if kg_title and self._name_match(name, kg_title.lower()):
                 kg_bonus = self.KG_TITLE_WEIGHT
+            # Exact-image match boost: if any match in this cluster has been
+            # confirmed as the same image (dHash) we apply a massive +200 boost
+            # — this is essentially proof the same photo was found.
+            exact_image_bonus = 0
+            for m in members:
+                if "exact_image_match" in (m.reason or ""):
+                    exact_image_bonus = self.EXACT_IMAGE_BOOST
+                    break
             cluster_score = (
                 best_score
                 + self.VOTE_WEIGHT * (votes - 1)
@@ -703,6 +950,8 @@ class WebSearchEngine:
                 + (self.CONSENSUS_WEIGHT if consensus else 0)
                 + kg_bonus
                 + domain_bonus
+                + cross_platform_bonus
+                + exact_image_bonus
             )
             scored_clusters.append((cluster_score, votes, name, best_score,
                                     best_member, has_wiki, consensus))
@@ -715,7 +964,22 @@ class WebSearchEngine:
         if wiki_members:
             chosen = max(wiki_members, key=lambda m: _score_visual_match(m, kg_title)[0])
         else:
-            chosen = best_member
+            # Prefer members whose title STARTS with the exact cluster name
+            # (profile pages / direct articles) over editorial headlines that
+            # merely mention the person ('MUSK'S BLACK EYE: Elon Musk ...'
+            # mentions Elon Musk but is a news headline, not a usable identity
+            # result, and its leading name fails `_first_person_name`).
+            exact = [m for m in members
+                     if self._first_person_name(m).lower() == name.lower()]
+            pool = exact or members
+            # Among those, prefer URLs that contain the person's name so the
+            # returned `link` corroborates the identity (data accuracy: the
+            # audit trail should point at a page that names the person).
+            name_tokens = [p for p in name.replace("'", "").split() if len(p) >= 3]
+            by_url = [m for m in pool
+                      if any(p in (m.link or "").lower() for p in name_tokens)]
+            chosen = max(by_url or pool,
+                         key=lambda m: _score_visual_match(m, kg_title)[0])
         s, r = _score_visual_match(chosen, kg_title)
         reason = (f"vote_winner (score={s}, votes={votes}, cluster={cluster_score}, "
                   f"wiki={'yes' if has_wiki else 'no'}, "
@@ -758,20 +1022,29 @@ class WebSearchEngine:
         # Name-voting selection + abstain policy (see select_by_voting).
         # Policy: a single Wikipedia page for a random person (1 vote, no
         # consensus) must NOT win. Require either 2+ votes (the name repeats
-        # across matches) OR cross-crop consensus. has_wiki alone is not enough.
-        # NOTE: pass kg_title (not None) so the KG bonus fires when Lens
-        # returns a Knowledge Graph entity — this is the single strongest
-        # signal and should always be rewarded.
+        # across matches) OR cross-crop consensus OR a strong cluster score
+        # above MIN_CLUSTER_SCORE (now 120, lowered from 150). has_wiki alone
+        # is not enough.
+        #
+        # Singleton-vote clusters get the STRICTER bar: a name that appears
+        # in exactly ONE match title is indistinguishable from coincidence
+        # (an AI-generated face that happens to resemble one real person's
+        # photo produces exactly this pattern: 1 Wikipedia hit + 118 random
+        # matches). Real identities repeat across multiple titles, so they
+        # clear the 120 bar via votes; singletons must reach 150.
         chosen, meta = self.select_by_voting(all_visual, kg_title=kg_title)
-        strong = (meta["votes"] >= 2) or meta["consensus"]
-        confident = strong and meta["cluster_score"] >= self.MIN_CLUSTER_SCORE
+        min_score = self.MIN_CLUSTER_SCORE
+        if meta["votes"] < 2 and not meta["consensus"]:
+            min_score = max(min_score, self.MIN_CLUSTER_SCORE_SINGLETON)
+        strong = (meta["votes"] >= 2) or meta["consensus"] or (meta["cluster_score"] >= self.MIN_CLUSTER_SCORE)
+        confident = strong and meta["cluster_score"] >= min_score
         if not confident:
             chosen = LensMatch(
                 rank=None, title="No confident identification",
                 link="", source="", platform="abstain",
                 reason=(
                     f"abstain (votes={meta['votes']}, wiki={'yes' if meta['has_wiki'] else 'no'}, "
-                    f"cluster={meta['cluster_score']}<150, no KG; Lens returned no real "
+                    f"cluster={meta['cluster_score']}<{min_score}, no KG; Lens returned no real "
                     f"matches for this face among {len(all_visual)} candidates)"
                 ),
             )
@@ -828,6 +1101,127 @@ class WebSearchEngine:
             "No visual matches found for this face. Try a clearer, front-facing image "
             "of a person with public web/social presence."
         )
+
+    # ------------------------------------------------------ corroboration
+    # Cross-platform identity confirmation: after the Lens vote produces a
+    # confident candidate name, verify the person exists on the major social
+    # platforms with dedicated site-scoped searches. Results are cached by
+    # canonical name, so reruns cost zero SerpApi credits.
+    _CORROB_SITES = (
+        ("instagram", "instagram.com"),
+        ("youtube", "youtube.com"),
+        ("facebook", "facebook.com"),
+        ("x", "x.com"),
+        ("linkedin", "linkedin.com"),
+        ("tiktok", "tiktok.com"),
+        # Extended (raised from 6 to 12 for ≥90% cross-platform accuracy)
+        ("reddit", "reddit.com"),
+        ("threads", "threads.net"),
+        ("pinterest", "pinterest.com"),
+        ("quora", "quora.com"),
+        ("medium", "medium.com"),
+        ("flickr", "flickr.com"),
+    )
+    MAX_CORROB_QUERIES = 12  # raised from 6 to cover 12 platforms in parallel
+    CORROB_CONCURRENCY = 4  # parallel site queries; wall time ~= single query
+
+    @staticmethod
+    def _corroboration_cache_key(name: str) -> str:
+        return ("corr_" +
+                hashlib.sha256(name.lower().strip().encode("utf-8")).hexdigest()[:20])
+
+    def _request_search(self, query: str) -> dict[str, Any]:
+        """Plain SerpApi organic search (engine=google_search) with retries."""
+        if not self.serpapi_key:
+            raise ValueError("SERPAPI_KEY is not set. Get a free key at https://serpapi.com")
+        params: dict[str, Any] = {
+            "engine": "google_search", "q": query, "num": 5,
+            "api_key": self.serpapi_key,
+        }
+        last_error: Exception | None = None
+        for attempt in range(1, self.retries + 2):
+            try:
+                resp = requests.get(SERPAPI_SEARCH_URL, params=params, timeout=self.timeout)
+                if resp.status_code in (429, 500, 502, 503, 504):
+                    raise RuntimeError(f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}")
+                if resp.status_code != 200:
+                    raise RuntimeError(f"SerpApi HTTP {resp.status_code}: {resp.text[:500]}")
+                data = resp.json()
+                if "error" in data:
+                    raise RuntimeError(f"SerpApi error: {data['error']}")
+                return data
+            except (requests.RequestException, ValueError, RuntimeError) as e:
+                last_error = e
+                if attempt <= self.retries:
+                    time.sleep(SERPAPI_BACKOFF_SECONDS)
+                    continue
+                break
+        raise RuntimeError(f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}")
+
+    def corroborate_platforms(self, name: str, sites=None) -> dict[str, str]:
+        """Confirm a candidate identity across social platforms.
+
+        Runs '"<name>" site:<domain>' organic searches and returns the first
+        matching profile URL per platform, e.g.
+        ``{"instagram": "https://www.instagram.com/virat.kohli/", ...}``.
+        Cached by canonical name so reruns cost zero SerpApi credits.
+        """
+        canonical = (name or "").strip()
+        if not canonical:
+            return {}
+        sites = tuple(sites) if sites else self._CORROB_SITES
+        ckey = self._corroboration_cache_key(canonical)
+        cached = self._get_cached(ckey)
+        if isinstance(cached, dict) and cached:
+            return {k: v for k, v in cached.items() if isinstance(v, str) and v}
+        profiles: dict[str, str] = {}
+        sites = sites[: self.MAX_CORROB_QUERIES]
+        queries = 0
+
+        def _query_site(site: str, domain: str) -> tuple[str, str] | None:
+            nonlocal queries
+            queries += 1
+            try:
+                data = self._request_search(f'"{canonical}" site:{domain}')
+            except Exception:
+                return None
+            for org in data.get("organic_results") or []:
+                link = (org.get("link") or "").lower()
+                if domain in link:
+                    return site, org.get("link") or ""
+            return None
+
+        # Parallel site queries: wall time ~= one query instead of 6x.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=self.CORROB_CONCURRENCY) as pool:
+            futures = [pool.submit(_query_site, s, d) for s, d in sites]
+            for fut in as_completed(futures):
+                try:
+                    hit = fut.result()
+                except Exception:
+                    hit = None
+                if hit:
+                    profiles[hit[0]] = hit[1]
+        if profiles:
+            self._put_cached(ckey, profiles)
+        return profiles
+
+    def _maybe_corroborate(self, selected) -> dict[str, str]:
+        """Corroborate a CONFIDENT identity across platforms.
+
+        Abstain selections and unparseable names skip corroboration entirely
+        (privacy-preserving abstains cost zero extra queries).
+        """
+        try:
+            title = (getattr(selected, "title", "") or "")
+            if not title or title == "No confident identification":
+                return {}
+            name = self._first_person_name(selected)
+            if not name:
+                return {}
+            return self.corroborate_platforms(name.title())
+        except Exception:
+            return {}
 
     # ----------------------------------------------------------- main API
     def search_face_on_web(
@@ -896,47 +1290,120 @@ class WebSearchEngine:
                 serpapi_total_time_s=cached.get("serpapi_total_time_s"),
                 lens_ms=0.0,
                 raw_response_at=cached.get("raw_response_at", ""),
+                platform_profiles=self._maybe_corroborate(selected),
             )
             return result
 
         lens_started = time.perf_counter()
-        # CASCADE search: try multiple SerpApi engines + source slices.
+        # PARALLEL multi-engine search with result MERGE.
         # A single Lens call frequently returns 0 matches on webcam photos
         # (poor lighting, indoor background, angle) even when the same face
-        # is recognizable in a cleaner crop. To deepen the search without
-        # burning more credits on the same upload, we cascade:
-        #   1. google_lens (default) -- the canonical visual search
+        # is recognizable in a cleaner crop. To deepen the search AND raise
+        # accuracy, we run multiple SerpApi engines **concurrently** and
+        # merge their visual_matches (deduped by URL + thumbnail URL).
+        #
+        # Engines:
+        #   1. google_lens (default)         -- canonical visual search
         #   2. google_lens with source=social -- focuses on social profiles
-        #   3. google_reverse_image -- a different engine, sometimes more
-        #      permissive on noisy inputs
-        #   4. bing_visual_search -- Microsoft's image match (free preview
-        #      on SerpApi; sometimes catches what Lens misses)
-        # We stop at the first engine that returns visual_matches OR a
-        # knowledge_graph entity. Total time-budget is bounded so we never
-        # hang the pipeline.
+        #   3. google_reverse_image           -- a different engine
+        #   4. bing_visual_search             -- Microsoft's image match
+        #
+        # Cross-engine duplicates get a +5 boost in the scoring layer (see
+        # `_match_from_visual` -> a matched link across engines is strong
+        # evidence the same person owns that profile).
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         engines = [
             ("google_lens", {"engine": "google_lens"}),
             ("google_lens_social", {"engine": "google_lens", "source": "social"}),
             ("google_reverse_image", {"engine": "google_reverse_image"}),
             ("bing_visual", {"engine": "bing_visual_search"}),
         ]
-        results: dict[str, Any] = {}
-        cascade_log: list[str] = []
-        for engine_name, extra_params in engines:
+
+        def _fetch_engine(name_params):
+            name, params = name_params
             try:
-                results = self._request_serpapi_engine(
-                    image_url, policy=policy, extra_params=extra_params,
-                )
-            except Exception as _exc:
-                cascade_log.append(f"{engine_name}:ERR({type(_exc).__name__})")
+                return (name, self._request_serpapi_engine(
+                    image_url, policy=policy, extra_params=params))
+            except Exception as e:
+                return (name, {"_error": f"{type(e).__name__}: {e}"})
+
+        # Run all engines in parallel; wall time ~= single engine
+        engine_results: dict[str, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=len(engines)) as pool:
+            futures = {pool.submit(_fetch_engine, ep): ep[0] for ep in engines}
+            for fut in as_completed(futures):
+                try:
+                    name, payload = fut.result()
+                except Exception:
+                    name, payload = futures[fut], {"_error": "future-failed"}
+                engine_results[name] = payload
+
+        # --- merge: combine visual_matches across engines (dedup by link + thumb) ---
+        merged_visual: list[dict[str, Any]] = []
+        seen_links: set[str] = set()
+        seen_thumbs: set[str] = set()
+        cross_engine_counts: dict[str, int] = {}  # link -> how many engines surfaced it
+        cascade_log: list[str] = []
+        # Engine priority: google_lens (most authoritative) first
+        priority = ("google_lens", "google_lens_social",
+                    "google_reverse_image", "bing_visual")
+        for engine_name in priority:
+            payload = engine_results.get(engine_name, {})
+            if "_error" in payload:
+                cascade_log.append(f"{engine_name}:ERR")
                 continue
-            vm = results.get("visual_matches") or []
-            kg = results.get("knowledge_graph")
+            vm = payload.get("visual_matches") or []
             cascade_log.append(f"{engine_name}:{len(vm)}_matches")
-            if vm or kg:
+            for m in vm:
+                link = (m.get("link") or "").lower()
+                thumb = (m.get("thumbnail") or m.get("image_thumbnail") or "").lower()
+                # Dedupe by link (or thumbnail if no link)
+                key = link or thumb
+                if not key:
+                    # No usable identifier — keep the entry but track the dedupe miss
+                    merged_visual.append(m)
+                    continue
+                if key in seen_links:
+                    # Same link found by a different engine -> boost signal
+                    cross_engine_counts[key] = cross_engine_counts.get(key, 1) + 1
+                    continue
+                if thumb and thumb in seen_thumbs:
+                    # Same thumbnail but different link — keep the higher-ranked one
+                    continue
+                seen_links.add(key)
+                if thumb:
+                    seen_thumbs.add(thumb)
+                # Stamp cross-engine count on the entry
+                m["_engine_hits"] = 1
+                m["_engine_origin"] = engine_name
+                merged_visual.append(m)
+
+        # Annotate entries that were confirmed by multiple engines
+        for m in merged_visual:
+            link = (m.get("link") or "").lower()
+            if cross_engine_counts.get(link, 0) > 1:
+                m["_engine_hits"] = cross_engine_counts[link]
+
+        # KG: take first non-None across priority order
+        knowledge_graph = None
+        for engine_name in priority:
+            payload = engine_results.get(engine_name, {})
+            if payload.get("knowledge_graph"):
+                knowledge_graph = payload["knowledge_graph"]
                 break
-        # If every engine returned empty, still take the LAST one so the
-        # downstream cache & diagnostics see a consistent shape.
+
+        # Build a results dict that matches the existing shape so downstream
+        # code doesn't need to change.
+        results = {
+            "visual_matches": merged_visual,
+            "knowledge_graph": knowledge_graph,
+            "search_metadata": {
+                "cascade_log": cascade_log,
+                "engines_used": list(engine_results.keys()),
+                "cross_engine_total": sum(cross_engine_counts.values()),
+                "total_merged": len(merged_visual),
+            },
+        }
         lens_ms = (time.perf_counter() - lens_started) * 1000.0
         results.setdefault("visual_matches", [])
         results.setdefault("knowledge_graph", None)
@@ -1022,6 +1489,7 @@ class WebSearchEngine:
             serpapi_total_time_s=serpapi_total,
             lens_ms=lens_ms,
             raw_response_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            platform_profiles=self._maybe_corroborate(selected),
         )
 
         # Cache the *full* result (selected + visual_matches + knowledge_graph)
@@ -1037,37 +1505,68 @@ class WebSearchEngine:
         )
         return result
 
-    @staticmethod
     def _hydrate_result(
+        self,
         cached: dict[str, Any],
         image_url: str,
         face_hash: str | None,
         image_sha256: str | None,
         cache_key: str,
     ) -> LensResult:
-        sel = cached.get("selected") or {}
-        kg = cached.get("knowledge_graph")
-        visual = [LensMatch(**m) for m in (cached.get("visual_matches") or [])]
-        by_domain = {
-            k: [LensMatch(**m) for m in v]
-            for k, v in (cached.get("candidates_by_domain") or {}).items()
-        }
+        """Reconstruct a LensResult from a raw cached payload.
+
+        Re-runs the CURRENT selection logic over the cached raw visual matches
+        (no fresh SerpApi call) so that improvements to name-cluster voting /
+        abstain policy take effect on cache hits too, exactly like the
+        ``upload_and_search`` cache path does. Falls back to the stored
+        ``selected`` if the raw matches are unusable.
+        """
+        raw_visual = cached.get("visual_matches") or []
+        fallback_visual = [LensMatch(**m) for m in raw_visual]
+        try:
+            sel, all_visual, by_domain, kg_match = self._select(
+                raw_visual,
+                cached.get("knowledge_graph"),
+                cached.get("policy", "social"),
+            )
+            chosen_dict = sel.to_dict()
+            kg_dict = kg_match.to_dict() if kg_match else None
+            visual_count = len(all_visual)
+        except (RuntimeError, ValueError, TypeError):
+            sel_raw = cached.get("selected")
+            chosen_dict = dict(sel_raw) if isinstance(sel_raw, dict) else {
+                "rank": None,
+                "title": "",
+                "link": "",
+                "source": "",
+                "platform": "",
+                "reason": "no_visual_matches (cached)",
+            }
+            kg_dict = cached.get("knowledge_graph")
+            all_visual = fallback_visual
+            visual_count = int(cached.get("visual_match_count", 0))
+            by_domain = {}
+        if not by_domain:
+            for m in all_visual:
+                by_domain.setdefault(m.platform, []).append(m)
+        hydrated_selected = LensMatch(**chosen_dict)
         return LensResult(
             query_image_url=cached.get("query_image_url") or image_url,
             image_sha256=cached.get("image_sha256") or (image_sha256 or ""),
             face_hash=cached.get("face_hash") or face_hash,
             policy=cached.get("policy", "social"),
-            selected=LensMatch(**sel) if sel else LensMatch(None, "", "", "", "", "cache hit"),
-            visual_matches=visual,
-            knowledge_graph=LensMatch(**kg) if kg else None,
+            selected=hydrated_selected,
+            visual_matches=all_visual,
+            knowledge_graph=LensMatch(**kg_dict) if kg_dict else None,
             candidates_by_domain=by_domain,
-            visual_match_count=int(cached.get("visual_match_count", 0)),
+            visual_match_count=visual_count,
             cached=True,
             cache_key=cache_key,
             cache_hit=True,
             serpapi_total_time_s=cached.get("serpapi_total_time_s"),
             lens_ms=0.0,
             raw_response_at=cached.get("raw_response_at", ""),
+            platform_profiles=self._maybe_corroborate(hydrated_selected),
         )
 
     # ------------------------------------------------------- concurrency
@@ -1099,8 +1598,33 @@ class WebSearchEngine:
         capitalized words, not starting with a stopword, not followed by
         editorial prose)."""
         t = (m.title or "").strip()
+        # Reject titles that contain a possessive 's anywhere -- "Satya
+        # Nadella's rise to CEO" is editorial, not a profile.
+        if "’s" in t or t.endswith("'s") or re.search(r"\b\w+['’]s\b", t):
+            # Exception: a name like "D'Angelo" or "O'Brien" -- only reject
+            # when the apostrophe is on the LAST word of the title.
+            if t.endswith("'s") or t.endswith("’s"):
+                return ""
+        # Reject emoji / pictographic runs in the title -- profile pages
+        # never contain a "🎤" or "⚽" between the name and the platform tag.
+        if re.search(r"[\U0001F300-\U0001FAFF\U00002600-\U000027BF]", t):
+            # Only reject if the emoji appears AFTER the name (i.e. not in
+            # a pre-name handle like "@drake🎤"). The cheap check is
+            # "emoji present AND title is not a platform-shaped handle",
+            # which is exactly the case for editorial titles.
+            plat = _platform_of(_match_field(m, "link"))
+            if not plat:
+                return ""
+        # Platform-shaped titles first: "Name (@handle) • Instagram",
+        # "Name - YouTube", "Name | Facebook", "Name (@handle) / X" ...
+        plat = _platform_of(_match_field(m, "link"))
+        if plat:
+            plat_name = _extract_platform_name(t, plat)
+            if plat_name:
+                return plat_name.lower()
         # Same strict regex as _looks_like_person's title branch: 2-3 words.
-        mm = re.match(r"^([A-Z][a-zA-Z'\-]{1,30}(?:\s+[A-Z][a-zA-Z'\-]{1,30}){1,2})", t)
+        t = _strip_honorifics(t)
+        mm = re.match(rf"^({_NAME_WORD_RE}(?:\s+{_NAME_WORD_RE}){{1,2}})", t)
         if not mm:
             return ""
         name = mm.group(1)
@@ -1108,6 +1632,17 @@ class WebSearchEngine:
         if not (2 <= len(parts) <= 3):
             return ""
         if parts[0].lower() in _NAME_NONNAME_LEADWORDS:
+            return ""
+        # Reject any word in the candidate name that ends in 's or 'S
+        # ("Nadella's", "Messi's") -- the regex matches possessive forms
+        # because the NAME_WORD_RE class allows apostrophes.
+        for p in parts:
+            if p.endswith("'s") or p.endswith("’s") or p.endswith("'S"):
+                return ""
+        # Reject headline-style ALL-CAPS words: 'MUSK'S BLACK EYE' or 'FROM
+        # TESLA' would otherwise become bogus "name" clusters that out-vote
+        # the real person (news cycles repeat headline phrases, not names).
+        if any(part.isupper() for part in parts):
             return ""
         if _is_prose_followed_name(name, t):
             return ""

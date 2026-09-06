@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: |
+  If you use this software in your research or product, please cite it as
+  below.
+type: software
+title: "HHG: Face Identification & Blockchain Verification"
+version: 0.3.0
+date-released: 2026-09-06
+license: MIT
+repository-code: https://github.com/<you>/hhg
+keywords:
+  - face-recognition
+  - reverse-image-search
+  - serpapi
+  - google-lens
+  - blockchain
+  - ethereum
+  - anchor
+  - tamper-evidence
+  - biometric
+abstract: |
+  HHG is a privacy-respecting, end-to-end pipeline that takes a face
+  image, performs multi-engine reverse-image search to discover the
+  identity's public web/social presence, and anchors the discovered
+  evidence on an EVM blockchain for tamper-evident auditing.
+authors:
+  - family-names: HHG
+    given-names: Contributors
+    affiliation: HHG Project
+preferred-citation:
+  type: software
+  title: "HHG: Face Identification & Blockchain Verification"
+  version: 0.3.0
+  authors:
+    - family-names: HHG
+      given-names: Contributors
+  date-released: 2026-09-06
+  url: https://github.com/<you>/hhg

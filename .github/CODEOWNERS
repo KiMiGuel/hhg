@@ -1,0 +1,19 @@
+# CODEOWNERS
+# Each line is a file pattern followed by one or more owners.
+# Order matters: later patterns override earlier ones.
+
+# Default owner for the whole repository
+*                        @hhg-maintainers
+
+# Core pipeline
+/src/                    @hhg-maintainers
+/pipeline.py             @hhg-maintainers
+/main.py                 @hhg-maintainers
+/scripts/master_accuracy.py   @hhg-maintainers
+/scripts/accuracy_eval.py     @hhg-maintainers
+/tests/                  @hhg-maintainers
+
+# Documentation
+/docs/                   @hhg-maintainers
+/README.md              @hhg-maintainers
+/CHANGELOG.md            @hhg-maintainers

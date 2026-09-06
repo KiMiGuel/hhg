@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest>=8.3,<9.0
+ruff>=0.6,<1.0
+black>=24.10,<25.0
+mypy>=1.11,<2.0
+types-requests>=2.32,<3.0

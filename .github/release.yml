@@ -1,0 +1,25 @@
+categories:
+  - title: 🚀 Features
+    labels:
+      - enhancement
+      - feature
+  - title: 🐛 Bug fixes
+    labels:
+      - fix
+      - bugfix
+  - title: 🔒 Security
+    labels:
+      - security
+  - title: 🧪 Testing &amp; CI
+    labels:
+      - ci
+      - testing
+      - benchmark
+  - title: 📚 Documentation
+    labels:
+      - docs
+      - documentation
+changes:
+  issue_reviver:
+    # Auto-generate release notes for the tag range.
+    label: auto-generated

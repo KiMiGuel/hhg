@@ -187,6 +187,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--visible-node", action="store_true", help="start Anvil with a visible console window if possible")
     parser.add_argument("--no-auto-node", action="store_true", help="do not auto-start local Anvil")
     parser.add_argument("--force-deploy", action="store_true", help="redeploy FaceRegistry even if current address has code")
+    parser.add_argument("--no-chain", action="store_true",
+                        help="skip Anvil/blockchain entirely (face detection + web search only; "
+                             "no Stage-3 anchoring, no report chain_id)")
     return parser
 
 
@@ -205,13 +208,18 @@ def main() -> int:
             )
         )
 
-        w3 = ensure_anvil(
-            env["RPC_URL"],
-            auto_start=not args.no_auto_node,
-            fresh=args.fresh_chain,
-            visible=args.visible_node,
-        )
-        ensure_contract(w3, force_deploy=args.force_deploy or args.fresh_chain)
+        if args.no_chain:
+            console.print(
+                "[dim]--no-chain: skipping Anvil/blockchain checks[/dim]"
+            )
+        else:
+            w3 = ensure_anvil(
+                env["RPC_URL"],
+                auto_start=not args.no_auto_node,
+                fresh=args.fresh_chain,
+                visible=args.visible_node,
+            )
+            ensure_contract(w3, force_deploy=args.force_deploy or args.fresh_chain)
 
         # Reload dotenv-aware config after possible CONTRACT_ADDRESS update.
         load_dotenv(_env_path(), override=True)
@@ -220,7 +228,8 @@ def main() -> int:
 
         from pipeline import run_pipeline
 
-        run_pipeline(image, demo_mode=False, face_index=args.face)
+        run_pipeline(image, demo_mode=False, face_index=args.face,
+                     skip_chain=args.no_chain, show_gui=not args.no_chain)
         return 0
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user.[/yellow]")

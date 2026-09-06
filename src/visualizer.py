@@ -152,7 +152,9 @@ def _person_name_from_lens(lens_result):
                 continue
             rs = str(raw)
             m = _re.match(r"^([A-Z][a-zA-Z\-\']{1,30}(?:[ ][A-Z][a-zA-Z\-\']{1,30}){1,3})", rs)
-            if m:
+            if m and not any(w.isupper() for w in m.group(1).split()):
+                # Reject headline-style ALL-CAPS phrases ('MUSK'S BLACK EYE')
+                # so the displayed name is the actual person, not a news topic.
                 return m.group(1)
             if '/wiki/' in rs:
                 try:

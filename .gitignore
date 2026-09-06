@@ -1,30 +1,48 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
 venv/
 .venv/
 
-# Environment secrets
+# Secrets & local config
 .env
+.env.local
+.env.*.local
 
-# Ephemeral face crops & artifacts
-temp/
-data/captured_face.jpg
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
 
-artifacts/
-reports/
+# OS
+Thumbs.db
+.DS_Store
 
-# SerpApi search result cache
-cache/
-
-# Registry exports
-exports/
-
-# Testing
+# Test / coverage
 .pytest_cache/
 htmlcov/
 .coverage
+coverage.xml
+.tox/
 
-# OS junk
-Thumbs.db
-.DS_Store
+# Runtime artifacts
+temp/
+reports/
+cache/
+cache_online_cold_*/
+cache_backup_*/
+exports/
+artifacts/
+data/captured_from_url/
+data/captured_face.jpg
+logs/
+*.log
+*.tmp
+
+# Models (downloaded on first run via src/face_engine._ensure_model)
+models/*.onnx
+

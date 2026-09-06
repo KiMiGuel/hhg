@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/<you>/hhg/blob/main/README.md
+    about: Project README, quickstart, and configuration
+  - name: Security policy
+    url: https://github.com/<you>/hhg/blob/main/SECURITY.md
+    about: How to report security-sensitive bugs privately
+  - name: Discussions
+    url: https://github.com/<you>/hhg/discussions
+    about: General questions and idea-sharing
