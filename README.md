@@ -1,14 +1,25 @@
-# 🔍 Face Identification & Blockchain Verification Pipeline
-
 <div align="center">
 
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![CI](https://github.com/Vansh756/hhg/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/Vansh756/hhg/actions)
-[![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.20-363636?style=flat-square&logo=solidity&logoColor=white)](contracts/FaceRegistry.sol)
-[![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?style=flat-square&logo=opencv&logoColor=white)](https://opencv.org)
-[![EVM](https://img.shields.io/badge/EVM-Compatible-3C3C3D?style=flat-square&logo=ethereum&logoColor=white)](https://ethereum.org)
-[![Hackathon](https://img.shields.io/badge/HHGoa-2026_🚀-orange?style=flat-square)](#)
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:8B5CF6,50:06B6D4,100:EC4899&height=230&section=header&text=%F0%9F%94%8D%20Face%20Chain&fontSize=68&fontColor=ffffff&animation=twinkling&fontAlignY=34&desc=Face%20Identification%20%2B%20Blockchain%20Verification%20Pipeline&descAlignY=56&descSize=19" width="100%"/>
+
+<br>
+
+[![CI](https://img.shields.io/github/actions/workflow/status/Vansh756/hhg/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/Vansh756/hhg/actions)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.20-363636?style=for-the-badge&logo=solidity&logoColor=white)](contracts/FaceRegistry.sol)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)](https://opencv.org)
+[![EVM](https://img.shields.io/badge/EVM-Anvil%20Ready-3C3C3D?style=for-the-badge&logo=ethereum&logoColor=white)](https://ethereum.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-3DA639?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
+
+[![Stars](https://img.shields.io/github/stars/Vansh756/hhg?style=for-the-badge&logo=github&color=F7D716&logoColor=white)](https://github.com/Vansh756/hhg/stargazers)
+[![Issues](https://img.shields.io/github/issues/Vansh756/hhg?style=for-the-badge&logo=github&color=E4572E&logoColor=white)](https://github.com/Vansh756/hhg/issues)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-06B6D4?style=for-the-badge&logo=github&logoColor=white)](CONTRIBUTING.md)
+[![SerpApi](https://img.shields.io/badge/Powered%20by-SerpApi-0064FF?style=for-the-badge)](https://serpapi.com)
+[![HH Goa 2026](https://img.shields.io/badge/HHGoa-2026%20%F0%9F%9A%80-EC4899?style=for-the-badge)](#)
+
+<a href="https://github.com/Vansh756/hhg">
+  <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&weight=600&size=19&pause=1200&color=8B5CF6&center=true&vCenter=true&width=760&lines=Detect+the+face+%F0%9F%91%A4;Search+the+web+%F0%9F%8C%90;Anchor+the+proof+on-chain+%E2%9B%93%EF%B8%8F;Prove+it+hasn't+been+tampered+with+%F0%9F%9B%A1%EF%B8%8F" alt="typing">
+</a>
 
 **An end-to-end pipeline that identifies faces via reverse image search and anchors results on-chain for tamper-evident verification.**
 
@@ -54,7 +65,28 @@
 
 ## 🏗️ Pipeline Architecture
 
+```mermaid
+flowchart LR
+    A["🖼️<br/>Input Face"] --> B["🧠<br/>Stage 1<br/>Face Detection<br/>+ SFace Embedding"]
+    B --> C["🌐<br/>Stage 2<br/>Dynamic Web Search<br/>(Google Lens)"]
+    C --> D{"⚖️<br/>Corroboration<br/>& Scoring"}
+    D -- "✅ confident match" --> E["⛓️<br/>Stage 3<br/>SHA-256 Fingerprint<br/>Anchored on EVM"]
+    E --> F["🛡️<br/>Stage 4<br/>Tamper Drill<br/>& On-Chain Audit"]
+    D -- "🚫 low confidence" --> G["🤫<br/>Abstain<br/>(no false claims)"]
+
+    style A fill:#8B5CF6,stroke:#C4B5FD,color:#fff,stroke-width:2px
+    style B fill:#7C3AED,stroke:#C4B5FD,color:#fff,stroke-width:2px
+    style C fill:#0891B2,stroke:#67E8F9,color:#fff,stroke-width:2px
+    style D fill:#F59E0B,stroke:#FCD34D,color:#fff,stroke-width:2px
+    style E fill:#10B981,stroke:#6EE7B7,color:#fff,stroke-width:2px
+    style F fill:#EC4899,stroke:#F9A8D4,color:#fff,stroke-width:2px
+    style G fill:#6B7280,stroke:#9CA3AF,color:#fff,stroke-width:2px
 ```
+
+<details>
+<summary>🖥️ Plain-text version</summary>
+
+```text
 +------------------+     +--------------------+     +--------------------------+
 |   Input Image    | --> | Stage 1: Face      | --> | Stage 2: Dynamic Web     |
 |  (local .jpg)    |     | Detection & Crop   |     | Search (Google Lens)     |
@@ -66,6 +98,8 @@
 | & Verification   |     | & On-Chain Proof   |     | (URL + metadata)         |
 +------------------+     +--------------------+     +--------------------------+
 ```
+
+</details>
 
 ## 🛠️ Tech Stack
 
@@ -687,7 +721,34 @@ python scripts/master_accuracy.py --quick
 
 ---
 
+<div align="center">
+
+## 📈 Project Stats
+
+<img height="180em" src="https://github-readme-stats.vercel.app/api?username=Vansh756&show_icons=true&theme=tokyonight&hide_border=true&bg_color=0D1117&title_color=8B5CF6&icon_color=06B6D4&text_color=C9D1D9" />
+<img height="180em" src="https://github-readme-stats.vercel.app/api/top-langs/?username=Vansh756&layout=compact&theme=tokyonight&hide_border=true&bg_color=0D1117&title_color=8B5CF6&text_color=C9D1D9" />
+
+<img src="https://github-readme-streak-stats.herokuapp.com/?user=Vansh756&hide_border=true&background=0D1117&stroke=8B5CF6&ring=EC4899&fire=F7D716&currStreakLabel=06B6D4&sideLabels=C9D1D9&dates=8B949E" />
+
+<img src="https://github-profile-trophy.vercel.app/?username=Vansh756&theme=tokyonight&no-frame=true&no-bg=true&column=7&margin-w=8" width="100%"/>
+
+</div>
+
+---
+
 ## 📜 License
 
 MIT -- see [`LICENSE`](LICENSE).  Bundled ONNX models retain their
 upstream MIT/Apache 2.0 licenses.
+
+---
+
+<div align="center">
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:EC4899,50:06B6D4,100:8B5CF6&height=120&section=footer" width="100%"/>
+
+**Made with ❤️ + ⛓️ by [Vansh756](https://github.com/Vansh756) — HH Goa 2026, Task 3**
+
+[⬆ Back to top](#-face-chain)
+
+</div>
