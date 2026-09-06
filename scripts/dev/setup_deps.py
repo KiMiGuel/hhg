@@ -5,6 +5,7 @@ the packages listed in requirements.txt (idempotent), prints a summary,
 and exits non-zero on failure so the caller can tell whether the runtime
 is ready.
 """
+
 import importlib
 import subprocess
 import sys
@@ -15,8 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 REQ = ROOT / "requirements.txt"
 
 REQUIRED = [
-    "cv2", "numpy", "requests", "rich", "web3",
-    "dotenv", "pytest",
+    "cv2",
+    "numpy",
+    "requests",
+    "rich",
+    "web3",
+    "dotenv",
+    "pytest",
 ]
 
 

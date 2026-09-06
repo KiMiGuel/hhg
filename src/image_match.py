@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Exact-image matching across platforms via perceptual hashing.
 
 Google Lens returns a thumbnail for every visual match. By perceptually
@@ -9,24 +8,26 @@ appears on Instagram, YouTube, Facebook, X, LinkedIn, news sites, etc.
 dHash is robust to JPEG recompression, minor resizing, and watermarking;
 Hamming distance <= 10 of 64 bits is a near-certain duplicate.
 """
+
 from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
 import numpy as np
-import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.biometric_verify import fetch_image  # UA + content-type guard
 
-DUPLICATE_THRESHOLD = 12   # of 64 bits (raised from 10: platform images are heavily cropped + recompressed)
-MAX_FETCH = 20             # thumbnails to check per query (raised from 12 for more cross-platform coverage)
-MAX_WORKERS = 8            # parallel thumbnail fetches (was 6)
+DUPLICATE_THRESHOLD = (
+    12  # of 64 bits (raised from 10: platform images are heavily cropped + recompressed)
+)
+MAX_FETCH = 20  # thumbnails to check per query (raised from 12 for more cross-platform coverage)
+MAX_WORKERS = 8  # parallel thumbnail fetches (was 6)
 
 
 def _dhash_bits(gray: np.ndarray, hash_size: int = 8) -> int:
     """dHash: horizontal gradient bits. Returns a 64-bit int."""
-    resized = cv2.resize(gray, (hash_size + 1, hash_size),
-                         interpolation=cv2.INTER_AREA)
+    resized = cv2.resize(gray, (hash_size + 1, hash_size), interpolation=cv2.INTER_AREA)
     diff = resized[:, 1:] > resized[:, :-1]
     bits = diff.flatten()
     value = 0
@@ -89,20 +90,21 @@ def find_exact_matches(
     candidates = []
     seen_thumbs = set()
     for m in matches or []:
-        thumb = (m.get("thumbnail") if isinstance(m, dict)
-                 else getattr(m, "thumbnail", "")) or ""
+        thumb = (m.get("thumbnail") if isinstance(m, dict) else getattr(m, "thumbnail", "")) or ""
         if not thumb or thumb in seen_thumbs:
             continue
         seen_thumbs.add(thumb)
-        candidates.append({
-            "title": (m.get("title") if isinstance(m, dict)
-                      else getattr(m, "title", "")) or "",
-            "link": (m.get("link") if isinstance(m, dict)
-                     else getattr(m, "link", "")) or "",
-            "platform": (m.get("platform") if isinstance(m, dict)
-                         else getattr(m, "platform", "")) or "",
-            "thumbnail": thumb,
-        })
+        candidates.append(
+            {
+                "title": (m.get("title") if isinstance(m, dict) else getattr(m, "title", "")) or "",
+                "link": (m.get("link") if isinstance(m, dict) else getattr(m, "link", "")) or "",
+                "platform": (
+                    m.get("platform") if isinstance(m, dict) else getattr(m, "platform", "")
+                )
+                or "",
+                "thumbnail": thumb,
+            }
+        )
         if len(candidates) >= max_fetch:
             break
 

@@ -1,4 +1,5 @@
 """One-click compiler & deployer for FaceRegistry.sol (local Anvil or Sepolia)."""
+
 import os
 
 from dotenv import load_dotenv
@@ -19,7 +20,7 @@ def compile_contract(source_path: str = "contracts/FaceRegistry.sol"):
     """Compile the Solidity source and return (abi, bytecode)."""
     install_solc(SOLC_VERSION)
 
-    with open(source_path, "r", encoding="utf-8") as f:
+    with open(source_path, encoding="utf-8") as f:
         source_code = f.read()
 
     compiled = compile_standard(

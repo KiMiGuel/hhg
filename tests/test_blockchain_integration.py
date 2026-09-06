@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Blockchain integration tests against a real local Anvil node.
 
 Starts Anvil on port 8546 (avoids clashing with a dev node on 8545), deploys
@@ -7,6 +6,7 @@ evidence, and negative controls through BlockchainManager.
 
 Skipped automatically when Anvil (foundry) is not installed.
 """
+
 import os
 import shutil
 import subprocess
@@ -18,7 +18,8 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 ANVIL = shutil.which("anvil") or os.path.expanduser(
-    os.path.join("~", ".foundry", "bin", "anvil.exe"))
+    os.path.join("~", ".foundry", "bin", "anvil.exe")
+)
 RPC = "http://127.0.0.1:8546"
 TEST_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
@@ -30,6 +31,7 @@ pytestmark = pytest.mark.skipif(
 
 def _rpc_up(timeout: float = 30.0) -> bool:
     from web3 import Web3
+
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -46,7 +48,9 @@ def _rpc_up(timeout: float = 30.0) -> bool:
 def anvil_node():
     proc = subprocess.Popen(
         [ANVIL, "--chain-id", "31337", "--port", "8546"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     assert _rpc_up(), "Anvil did not come up on port 8546"
     yield proc
     proc.terminate()
@@ -61,22 +65,30 @@ def contract_address(anvil_node):
     """Compile + deploy FaceRegistry.sol, return the deployed address."""
     from solcx import compile_standard, install_solc
     from web3 import Web3
+
     install_solc("0.8.20")
     w3 = Web3(Web3.HTTPProvider(RPC))
     account = w3.eth.account.from_key(TEST_KEY)
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    src = open(os.path.join(root, "contracts", "FaceRegistry.sol"),
-               encoding="utf-8").read()
+    src = open(os.path.join(root, "contracts", "FaceRegistry.sol"), encoding="utf-8").read()
     compiled = compile_standard(
-        {"language": "Solidity",
-         "sources": {"FaceRegistry.sol": {"content": src}},
-         "settings": {"outputSelection": {"*": {"*": ["abi", "evm.bytecode"]}}}},
-        solc_version="0.8.20")
+        {
+            "language": "Solidity",
+            "sources": {"FaceRegistry.sol": {"content": src}},
+            "settings": {"outputSelection": {"*": {"*": ["abi", "evm.bytecode"]}}},
+        },
+        solc_version="0.8.20",
+    )
     data = compiled["contracts"]["FaceRegistry.sol"]["FaceRegistry"]
     contract = w3.eth.contract(abi=data["abi"], bytecode=data["evm"]["bytecode"]["object"])
-    tx = contract.constructor().build_transaction({
-        "from": account.address, "nonce": w3.eth.get_transaction_count(account.address),
-        "gas": 3_000_000, "gasPrice": w3.eth.gas_price})
+    tx = contract.constructor().build_transaction(
+        {
+            "from": account.address,
+            "nonce": w3.eth.get_transaction_count(account.address),
+            "gas": 3_000_000,
+            "gasPrice": w3.eth.gas_price,
+        }
+    )
     signed = w3.eth.account.sign_transaction(tx, private_key=account.key)
     raw = getattr(signed, "rawTransaction", None) or signed.raw_transaction
     tx_hash = w3.eth.send_raw_transaction(raw)
@@ -88,6 +100,7 @@ def contract_address(anvil_node):
 @pytest.fixture(scope="module")
 def bm(contract_address):
     from src.blockchain import BlockchainManager
+
     return BlockchainManager(RPC, TEST_KEY, contract_address)
 
 
@@ -119,6 +132,7 @@ class TestBlockchainIntegration:
 
     def test_fingerprint_is_sha256_of_hash_and_url(self, bm):
         import hashlib
+
         face_hash, url = "0x" + "11" * 32, "https://example.com/x"
         expected = "0x" + hashlib.sha256(f"{face_hash}:{url}".encode()).hexdigest()
         assert bm.compute_data_fingerprint(face_hash, url) == expected

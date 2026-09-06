@@ -8,9 +8,28 @@ extend-exclude = ["data", "models", "reports", "cache", "scripts/dev"]
 # UP: pyupgrade; SIM: simplify; C4: comprehensions; RUF: ruff-specific.
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RUF"]
 ignore = [
-    "E501",  # line length is governed by formatter
-    "B008",  # function call in default argument (used in many tests)
+    "E501",   # line length is governed by formatter
+    "B008",   # function call in default argument (used in many tests)
     "RUF012", # mutable class attributes (used for dataclass sentinels)
+    # --- Pragmatic relaxations (code predates lint config; behaviour is
+    # --- benchmark-locked, so purely stylistic rewrites are avoided):
+    "E701",   # multiple statements on one line (colon)  - style only
+    "E702",   # multiple statements on one line (semicolon) - style only
+    "E401",   # multiple imports on one line - style only
+    "E402",   # module import not at top (sys.path setup in scripts/tests)
+    "E741",   # ambiguous variable name (single-letter `l`/`I`) - style only
+    "RUF001", # ambiguous unicode in strings (en/em dashes are intentional)
+    "RUF005", # collection literal concatenation - style only
+    "RUF046", # unnecessary int() cast - defensive casts kept
+    "RUF059", # unused unpacked variable - intentional `_`-like placeholders
+    "SIM102", # collapsible if - keeps guard clauses explicit
+    "SIM103", # needless bool - explicit True/False returns read clearer
+    "SIM105", # contextlib.suppress - explicit try/except/pass kept
+    "SIM115", # open file without context manager - long-lived handles by design
+    "B007",   # unused loop control variable - tuple unpacking placeholder
+    "B904",   # raise without from - re-raise semantics intentional
+    "F811",   # redefined while unused - guarded fallback definitions
+    "F841",   # unused local variable - kept for readability/debugging
 ]
 
 [tool.ruff.lint.per-file-ignores]

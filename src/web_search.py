@@ -18,19 +18,18 @@ The engine is fully integrated with the pipeline:
 
 from __future__ import annotations
 
-import hashlib
-import re
-import io
 import glob
+import hashlib
+import io
 import json
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 import requests
-
 
 CACHE_DIR = "cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -89,11 +88,16 @@ def _truncate(s, n):
     s = str(s) if s is not None else ""
     return s if len(s) <= n else s[: n - 1] + chr(0x2026)
 
+
 def _truncate_url(url, n=70):
-    if not url: return "(no URL)"
-    if len(url) <= n: return url
-    h = n // 2 - 1; t = n // 2 + 1
+    if not url:
+        return "(no URL)"
+    if len(url) <= n:
+        return url
+    h = n // 2 - 1
+    t = n // 2 + 1
     return url[:h] + chr(0x2026) + url[-t:]
+
 
 def _person_name_from_lens(lens_result):
     """Return the best human-readable person/entity name for the face.
@@ -102,26 +106,32 @@ def _person_name_from_lens(lens_result):
               3) URL path (First_Last for Wikipedia links),
               4) empty string.
     """
+
     def _is_real_name(s):
-        if not s: return False
+        if not s:
+            return False
         low = s.lower()
-        if 'wikipedia' in low and ('encyclopedia' in low or 'the free' in low):
+        if "wikipedia" in low and ("encyclopedia" in low or "the free" in low):
             return False
         return sum(1 for p in s.split() if p[:1].isupper()) >= 2
+
     try:
-        kg = getattr(lens_result, 'knowledge_graph', None)
+        kg = getattr(lens_result, "knowledge_graph", None)
         if kg is not None:
-            t = (getattr(kg, 'title', None) or '').strip()
-            if _is_real_name(t): return t
-    except Exception: pass
+            t = (getattr(kg, "title", None) or "").strip()
+            if _is_real_name(t):
+                return t
+    except Exception:
+        pass
     try:
-        sel = getattr(lens_result, 'selected', None)
-        if sel is None: return ''
+        sel = getattr(lens_result, "selected", None)
+        if sel is None:
+            return ""
         # If the selected match is a LensMatch, use its title.
-        sel_title = (getattr(sel, 'title', None) or '')
+        sel_title = getattr(sel, "title", None) or ""
         # Prefer the strict validator (rejects "Legendary Actor Robert Duvall"
         # and other editorialized obit-style titles).
-        candidate = {'title': sel_title, 'link': getattr(sel, 'link', None) or ''}
+        candidate = {"title": sel_title, "link": getattr(sel, "link", None) or ""}
         if _looks_like_person(candidate):
             # Extract the 2-3 word name phrase.
             mm = re.match(r"^([A-Z][a-zA-Z'\-]{1,30}(?:[ ][A-Z][a-zA-Z'\-]{1,30}){1,2})", sel_title)
@@ -131,17 +141,21 @@ def _person_name_from_lens(lens_result):
                 if 2 <= len(parts) <= 3 and parts[0].lower() not in _NAME_NONNAME_LEADWORDS:
                     return name
         # Fallback: parse Wikipedia URL path.
-        sel_link = getattr(sel, 'link', None) or ''
-        if '/wiki/' in sel_link:
+        sel_link = getattr(sel, "link", None) or ""
+        if "/wiki/" in sel_link:
             try:
-                from urllib.parse import urlparse, unquote
-                tail = unquote(urlparse(sel_link).path).rsplit('/', 1)[-1].replace('_', ' ')
+                from urllib.parse import unquote, urlparse
+
+                tail = unquote(urlparse(sel_link).path).rsplit("/", 1)[-1].replace("_", " ")
                 npp = [pp for pp in tail.split() if pp and pp[:1].isupper() and pp[1:].islower()]
                 if 2 <= len(npp) <= 4:
-                    return ' '.join(npp)
-            except Exception: pass
-    except Exception: pass
-    return ''
+                    return " ".join(npp)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return ""
+
 
 @dataclass
 class LensMatch:
@@ -229,9 +243,12 @@ class LensResult:
 def _norm_tokens(s):
     return [w for w in re.split(r"\\W+\\", (s or "").lower()) if len(w) >= 3]
 
+
 def _title_contains_kg(title, kg_title):
-    if not kg_title or not title: return False
+    if not kg_title or not title:
+        return False
     return any(w in _norm_tokens(title) for w in _norm_tokens(kg_title))
+
 
 def _match_field(m, key, default=""):
     if isinstance(m, dict):
@@ -240,60 +257,272 @@ def _match_field(m, key, default=""):
         return m.get(key, default) or default
     return getattr(m, key, default) or default
 
+
 # Words that should NEVER be the first word of a personal name. These appear
 # frequently in editorialized Lens titles ("Legendary Actor Robert Duvall",
 # "RIP John Doe", "Top 10 Tom Cruise Movies", "Watch Amitabh Bachchan Live")
 # and the old "first 2-4 capitalized words" heuristic was accepting them as
 # a person name, which let the consensus / social boosts pick a random obit
 # over the real Wikipedia profile.
-_NAME_NONNAME_LEADWORDS = frozenset({
-    "watch", "see", "meet", "remember", "celebrate", "honor", "honour",
-    "discover", "find", "learn", "know", "tribute", "throwback",
-    "legendary", "famous", "top", "best", "worst", "most", "least",
-    "why", "how", "what", "when", "where", "who",
-    "inside", "exclusive", "breaking", "update", "latest", "new",
-    "rare", "unseen", "stunning", "amazing", "shocking", "sad",
-    "rip", "obit", "obituary", "dead", "dies", "death", "funeral",
-    "young", "old", "former", "current",
-    "actor", "actress", "singer", "director", "producer", "writer",
-    "star", "icon", "legend", "hero", "villain", "king", "queen",
-    "celebrity", "personality",
-    "photo", "image", "video", "clip", "scene", "movie", "film",
-    "show", "series", "episode", "interview", "press",
-    "biography", "profile", "story", "feature", "article", "post",
-    "the", "a", "an", "this", "that", "these", "those",
-    "celebrating", "happy", "merry",
-    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-})
+_NAME_NONNAME_LEADWORDS = frozenset(
+    {
+        "watch",
+        "see",
+        "meet",
+        "remember",
+        "celebrate",
+        "honor",
+        "honour",
+        "discover",
+        "find",
+        "learn",
+        "know",
+        "tribute",
+        "throwback",
+        "legendary",
+        "famous",
+        "top",
+        "best",
+        "worst",
+        "most",
+        "least",
+        "why",
+        "how",
+        "what",
+        "when",
+        "where",
+        "who",
+        "inside",
+        "exclusive",
+        "breaking",
+        "update",
+        "latest",
+        "new",
+        "rare",
+        "unseen",
+        "stunning",
+        "amazing",
+        "shocking",
+        "sad",
+        "rip",
+        "obit",
+        "obituary",
+        "dead",
+        "dies",
+        "death",
+        "funeral",
+        "young",
+        "old",
+        "former",
+        "current",
+        "actor",
+        "actress",
+        "singer",
+        "director",
+        "producer",
+        "writer",
+        "star",
+        "icon",
+        "legend",
+        "hero",
+        "villain",
+        "king",
+        "queen",
+        "celebrity",
+        "personality",
+        "photo",
+        "image",
+        "video",
+        "clip",
+        "scene",
+        "movie",
+        "film",
+        "show",
+        "series",
+        "episode",
+        "interview",
+        "press",
+        "biography",
+        "profile",
+        "story",
+        "feature",
+        "article",
+        "post",
+        "the",
+        "a",
+        "an",
+        "this",
+        "that",
+        "these",
+        "those",
+        "celebrating",
+        "happy",
+        "merry",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+    }
+)
 
 # Words that, if they appear immediately AFTER a candidate name phrase, indicate
 # the title is editorial prose and not a person page.
-_NAME_NONNAME_FOLLOWWORDS = frozenset({
-    "in", "on", "at", "for", "to", "by", "with", "from", "as", "of",
-    "is", "was", "are", "were", "be", "been", "being",
-    "has", "had", "have", "will", "would", "can", "could", "should",
-    "says", "said", "tells", "told", "gives", "gave", "gets", "got",
-    "dies", "dead", "death", "obituary", "rip", "funeral", "tribute",
-    "young", "old", "years", "vs", "versus",
-    "leaked", "reveals", "revealed", "shares", "shared", "posts", "posted",
-    "celebrates", "celebrated", "marks", "marked", "turns", "turned",
-    "reacts", "reacted", "responds", "responded",
-    "movie", "film", "show", "series", "episode", "scene", "clip", "video",
-    "interview", "biography", "profile", "story", "feature", "article",
-    "photo", "image", "throwback", "and", "or", "but", "plus",
-    # New: editorial verbs & events that always follow a name in news titles
-    "announces", "announced", "reveal", "launches", "launched",
-    "unveils", "unveiled", "confirms", "confirmed", "denies", "denied",
-    "rise", "rises", "legacy", "story", "stories", "secret", "secrets",
-    "net", "worth", "salary", "wage", "ages", "age", "ranking", "ranked",
-    "live", "concert", "tour", "stadium", "arena", "set", "list", "ranking",
-    "goals", "assists", "stats", "highlights", "moments", "plays",
-    "wins", "won", "loses", "lost", "defeats", "defeated",
-    "killed", "arrested", "released", "scores", "scored",
-    "trending", "viral", "today", "this", "last", "next", "first", "new",
-    "vs", "versus", "against",
-    "leaks", "leaked", "spotted", "seen", "caught",
-})
+_NAME_NONNAME_FOLLOWWORDS = frozenset(
+    {
+        "in",
+        "on",
+        "at",
+        "for",
+        "to",
+        "by",
+        "with",
+        "from",
+        "as",
+        "of",
+        "is",
+        "was",
+        "are",
+        "were",
+        "be",
+        "been",
+        "being",
+        "has",
+        "had",
+        "have",
+        "will",
+        "would",
+        "can",
+        "could",
+        "should",
+        "says",
+        "said",
+        "tells",
+        "told",
+        "gives",
+        "gave",
+        "gets",
+        "got",
+        "dies",
+        "dead",
+        "death",
+        "obituary",
+        "rip",
+        "funeral",
+        "tribute",
+        "young",
+        "old",
+        "years",
+        "vs",
+        "versus",
+        "leaked",
+        "reveals",
+        "revealed",
+        "shares",
+        "shared",
+        "posts",
+        "posted",
+        "celebrates",
+        "celebrated",
+        "marks",
+        "marked",
+        "turns",
+        "turned",
+        "reacts",
+        "reacted",
+        "responds",
+        "responded",
+        "movie",
+        "film",
+        "show",
+        "series",
+        "episode",
+        "scene",
+        "clip",
+        "video",
+        "interview",
+        "biography",
+        "profile",
+        "story",
+        "feature",
+        "article",
+        "photo",
+        "image",
+        "throwback",
+        "and",
+        "or",
+        "but",
+        "plus",
+        # New: editorial verbs & events that always follow a name in news titles
+        "announces",
+        "announced",
+        "reveal",
+        "launches",
+        "launched",
+        "unveils",
+        "unveiled",
+        "confirms",
+        "confirmed",
+        "denies",
+        "denied",
+        "rise",
+        "rises",
+        "legacy",
+        "stories",
+        "secret",
+        "secrets",
+        "net",
+        "worth",
+        "salary",
+        "wage",
+        "ages",
+        "age",
+        "ranking",
+        "ranked",
+        "live",
+        "concert",
+        "tour",
+        "stadium",
+        "arena",
+        "set",
+        "list",
+        "goals",
+        "assists",
+        "stats",
+        "highlights",
+        "moments",
+        "plays",
+        "wins",
+        "won",
+        "loses",
+        "lost",
+        "defeats",
+        "defeated",
+        "killed",
+        "arrested",
+        "released",
+        "scores",
+        "scored",
+        "trending",
+        "viral",
+        "today",
+        "this",
+        "last",
+        "next",
+        "first",
+        "new",
+        "against",
+        "leaks",
+        "spotted",
+        "seen",
+        "caught",
+    }
+)
 
 
 def _is_prose_followed_name(name: str, full_title: str) -> bool:
@@ -305,7 +534,7 @@ def _is_prose_followed_name(name: str, full_title: str) -> bool:
     pos = low.find(name.lower())
     if pos < 0:
         return False
-    after = low[pos + len(name):].lstrip(" ,;:")
+    after = low[pos + len(name) :].lstrip(" ,;:")
     if not after:
         return False
     first = after.split(maxsplit=1)[0] if after else ""
@@ -336,10 +565,21 @@ PLATFORM_DOMAINS = {
 
 # Site-name tokens that show up as the "name" of a platform's own page
 # ("Instagram (@instagram) • ...") — never a person.
-_PLATFORM_NAME_BLOCKLIST = frozenset({
-    "instagram", "youtube", "facebook", "twitter", "linkedin",
-    "tiktok", "threads", "reels", "explore", "official", "news",
-})
+_PLATFORM_NAME_BLOCKLIST = frozenset(
+    {
+        "instagram",
+        "youtube",
+        "facebook",
+        "twitter",
+        "linkedin",
+        "tiktok",
+        "threads",
+        "reels",
+        "explore",
+        "official",
+        "news",
+    }
+)
 
 
 def _platform_of(link: str) -> str:
@@ -369,7 +609,10 @@ def _clean_platform_name(raw: str) -> str:
             name = name.split(sep)[0].strip()
     name = re.sub(
         r"\s+-\s+(about|home|profile|videos|photos|watch|live|official|reel|topics?)$",
-        "", name, flags=re.IGNORECASE)
+        "",
+        name,
+        flags=re.IGNORECASE,
+    )
     words = [w for w in name.split() if w]
     if not (2 <= len(words) <= 4):
         return ""
@@ -455,7 +698,6 @@ def _extract_platform_name(title: str, platform: str) -> str:
     return ""
 
 
-
 # Unicode-aware capitalized word. Python's re supports \w which includes
 # Unicode letters; explicit class via [A-Z] + Unicode escape for capitals.
 # \p{Lu} requires the 'regex' module, so we approximate with a per-script
@@ -471,7 +713,11 @@ def _strip_honorifics(title: str) -> str:
     return re.sub(
         r"^(dr|mr|mrs|ms|sir|madam|prof|professor|president|governor|senator|"
         r"coach|capt|captain|sgt|lt|hon|rev|est)\.?\s+",
-        "", t, count=1, flags=re.IGNORECASE)
+        "",
+        t,
+        count=1,
+        flags=re.IGNORECASE,
+    )
 
 
 def _looks_like_person(match, kg_title=None):
@@ -501,12 +747,15 @@ def _looks_like_person(match, kg_title=None):
     # Wikipedia person URL: /wiki/First_Last (no underscores in body)
     if "/wiki/" in link:
         try:
-            from urllib.parse import urlparse, unquote
+            from urllib.parse import unquote, urlparse
+
             path = unquote(urlparse(link).path)
             tail = path.rsplit("/", 1)[-1]
             tail = tail.replace("_", " ")
             parts = [p for p in tail.split() if p]
-            if 2 <= len(parts) <= 4 and all(p[0].isupper() and p[1:].islower() for p in parts if p[0].isalpha()):
+            if 2 <= len(parts) <= 4 and all(
+                p[0].isupper() and p[1:].islower() for p in parts if p[0].isalpha()
+            ):
                 return True
         except Exception:
             pass
@@ -537,11 +786,13 @@ def _looks_like_person(match, kg_title=None):
                 return True
     return False
 
+
 def _score_visual_match(match, kg_title=None):
     link = _match_field(match, "link").lower()
     title = _match_field(match, "title")
     reason_field = _match_field(match, "reason") or ""
-    score = 0; reasons = []
+    score = 0
+    reasons = []
     # Hard filter: matches that look like random articles, products, or unrelated
     # pages (no personal-name title, no /wiki/First_Last URL, no KG-title match) score
     # -120 so any real person/profile match wins. This is the single biggest
@@ -549,22 +800,40 @@ def _score_visual_match(match, kg_title=None):
     # just because the article happens to live on wikipedia.org.
     if not _looks_like_person(match, kg_title):
         return -120, "no_person_signal"
-    if "wikipedia.org" in link or ".edu" in link or ".gov" in link: score += 90; reasons.append("wikipedia+90")
-    if any(tld in link for tld in OFFICIAL_TLDS_HINT): score += 20; reasons.append("official_tld+20")
+    if "wikipedia.org" in link or ".edu" in link or ".gov" in link:
+        score += 90
+        reasons.append("wikipedia+90")
+    if any(tld in link for tld in OFFICIAL_TLDS_HINT):
+        score += 20
+        reasons.append("official_tld+20")
     if any(p in link for p in SOCIAL_PLATFORMS):
         # Social platforms get a small base boost + per-platform tiebreaker.
         # Was +70, which let Reddit obits and random TikTok clips outscore
         # real Wikipedia/IMDb profiles. +20 is enough to be a tiebreaker
         # among equally-relevant matches but never the primary signal.
-        score += 20; reasons.append("social+20")
-        if "linkedin.com" in link: score += 15
-        if "facebook.com" in link: score += 5
-        if "instagram.com" in link: score += 3
-        if "youtube.com" in link: score -= 5
-        if "reddit.com" in link: score -= 10; reasons.append("reddit_penalty-10")
-        if "tiktok.com" in link: score -= 5; reasons.append("tiktok_penalty-5")
-    if kg_title and _title_contains_kg(title, kg_title): score += 50
-    if re.match(r"^[A-Z][a-z]+ [A-Z][a-z]+", title) and any(kw in title.lower() for kw in ("ceo","founder","actor","singer","director","president","scientist")): score += 10
+        score += 20
+        reasons.append("social+20")
+        if "linkedin.com" in link:
+            score += 15
+        if "facebook.com" in link:
+            score += 5
+        if "instagram.com" in link:
+            score += 3
+        if "youtube.com" in link:
+            score -= 5
+        if "reddit.com" in link:
+            score -= 10
+            reasons.append("reddit_penalty-10")
+        if "tiktok.com" in link:
+            score -= 5
+            reasons.append("tiktok_penalty-5")
+    if kg_title and _title_contains_kg(title, kg_title):
+        score += 50
+    if re.match(r"^[A-Z][a-z]+ [A-Z][a-z]+", title) and any(
+        kw in title.lower()
+        for kw in ("ceo", "founder", "actor", "singer", "director", "president", "scientist")
+    ):
+        score += 10
     # Cross-engine confirmation boost: if the same URL was surfaced by 2+
     # different search engines (Lens, Bing, Reverse Image, etc.) the match
     # is much more reliable. +10 per extra engine beyond the first.
@@ -585,6 +854,7 @@ def _score_visual_match(match, kg_title=None):
         score += EXACT_IMAGE_SCORE_BOOST
         reasons.append(f"exact_image+{EXACT_IMAGE_SCORE_BOOST}")
     return score, "+".join(reasons) if reasons else "base"
+
 
 def _classify_link(link: str) -> str:
     """Return 'social' / 'official' / 'news' / 'web' for a URL."""
@@ -666,7 +936,7 @@ class WebSearchEngine:
         # Stable across reruns: same face hash + same source image bytes
         # yields the same cache file. The catbox URL is irrelevant.
         fh = (face_hash or "noface").lower()
-        return hashlib.sha256(f"{fh}:{image_sha256}".encode("utf-8")).hexdigest()[:24]
+        return hashlib.sha256(f"{fh}:{image_sha256}".encode()).hexdigest()[:24]
 
     def _cache_path(self, key: str) -> str:
         return os.path.join(CACHE_DIR, f"{key}.json")
@@ -676,7 +946,7 @@ class WebSearchEngine:
         if not os.path.exists(path):
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, json.JSONDecodeError, ValueError):
             return None
@@ -730,7 +1000,9 @@ class WebSearchEngine:
                 timeout=UPLOAD_TIMEOUT_SECONDS,
             )
             if resp.status_code != 200:
-                raise RuntimeError(f"tmpfiles.org returned HTTP {resp.status_code}: {resp.text[:200]}")
+                raise RuntimeError(
+                    f"tmpfiles.org returned HTTP {resp.status_code}: {resp.text[:200]}"
+                )
             raw_url = resp.json()["data"]["url"]
             return raw_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
         except Exception as e:
@@ -758,7 +1030,9 @@ class WebSearchEngine:
             try:
                 resp = requests.get(SERPAPI_SEARCH_URL, params=params, timeout=self.timeout)
                 if resp.status_code in (429, 500, 502, 503, 504):
-                    raise RuntimeError(f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}")
+                    raise RuntimeError(
+                        f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}"
+                    )
                 if resp.status_code != 200:
                     raise RuntimeError(f"SerpApi HTTP {resp.status_code}: {resp.text[:500]}")
                 data = resp.json()
@@ -771,7 +1045,9 @@ class WebSearchEngine:
                     time.sleep(SERPAPI_BACKOFF_SECONDS)
                     continue
                 break
-        raise RuntimeError(f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}")
+        raise RuntimeError(
+            f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}"
+        )
 
     # ----------------------------------------------------------- selection
 
@@ -804,7 +1080,9 @@ class WebSearchEngine:
             try:
                 resp = requests.get(SERPAPI_SEARCH_URL, params=params, timeout=self.timeout)
                 if resp.status_code in (429, 500, 502, 503, 504):
-                    raise RuntimeError(f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}")
+                    raise RuntimeError(
+                        f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}"
+                    )
                 if resp.status_code != 200:
                     raise RuntimeError(f"SerpApi HTTP {resp.status_code}: {resp.text[:500]}")
                 data = resp.json()
@@ -817,23 +1095,76 @@ class WebSearchEngine:
                     time.sleep(SERPAPI_BACKOFF_SECONDS)
                     continue
                 break
-        raise RuntimeError(f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}")
+        raise RuntimeError(
+            f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}"
+        )
 
     def _kg_match(self, knowledge_graph_raw):
         if isinstance(knowledge_graph_raw, dict) and knowledge_graph_raw.get("link"):
-            return LensMatch(rank=None, title=knowledge_graph_raw.get("title", "Knowledge Graph"), link=knowledge_graph_raw["link"], source="Google Knowledge Graph", platform=_classify_link(knowledge_graph_raw["link"]) or "web", reason="knowledge_graph_entity")
-        if isinstance(knowledge_graph_raw, list) and knowledge_graph_raw and knowledge_graph_raw[0].get("link"):
+            return LensMatch(
+                rank=None,
+                title=knowledge_graph_raw.get("title", "Knowledge Graph"),
+                link=knowledge_graph_raw["link"],
+                source="Google Knowledge Graph",
+                platform=_classify_link(knowledge_graph_raw["link"]) or "web",
+                reason="knowledge_graph_entity",
+            )
+        if (
+            isinstance(knowledge_graph_raw, list)
+            and knowledge_graph_raw
+            and knowledge_graph_raw[0].get("link")
+        ):
             raw = knowledge_graph_raw[0]
-            return LensMatch(rank=None, title=raw.get("title", "Knowledge Graph"), link=raw["link"], source="Google Knowledge Graph", platform=_classify_link(raw["link"]) or "web", reason="knowledge_graph_entity")
+            return LensMatch(
+                rank=None,
+                title=raw.get("title", "Knowledge Graph"),
+                link=raw["link"],
+                source="Google Knowledge Graph",
+                platform=_classify_link(raw["link"]) or "web",
+                reason="knowledge_graph_entity",
+            )
         return None
 
     def _policy_multiplier(self, policy):
         if policy == "social":
-            return {"youtube.com": 0.4, "reddit.com": 0.5, "news": 0.6, "facebook.com": 0.9, "twitter.com": 0.9, "x.com": 0.9, "instagram.com": 1.0, "linkedin.com": 1.1, "wikipedia.org": 1.3, "official": 1.4}
+            return {
+                "youtube.com": 0.4,
+                "reddit.com": 0.5,
+                "news": 0.6,
+                "facebook.com": 0.9,
+                "twitter.com": 0.9,
+                "x.com": 0.9,
+                "instagram.com": 1.0,
+                "linkedin.com": 1.1,
+                "wikipedia.org": 1.3,
+                "official": 1.4,
+            }
         if policy == "official":
-            return {"wikipedia.org": 2.0, "official": 2.0, "news": 0.5, "youtube.com": 0.2, "reddit.com": 0.2, "facebook.com": 0.3, "twitter.com": 0.3, "x.com": 0.3, "instagram.com": 0.3, "linkedin.com": 0.3}
+            return {
+                "wikipedia.org": 2.0,
+                "official": 2.0,
+                "news": 0.5,
+                "youtube.com": 0.2,
+                "reddit.com": 0.2,
+                "facebook.com": 0.3,
+                "twitter.com": 0.3,
+                "x.com": 0.3,
+                "instagram.com": 0.3,
+                "linkedin.com": 0.3,
+            }
         if policy == "news":
-            return {"news": 2.0, "wikipedia.org": 1.5, "official": 1.5, "youtube.com": 0.2, "reddit.com": 0.2, "facebook.com": 0.3, "twitter.com": 0.3, "x.com": 0.3, "instagram.com": 0.3, "linkedin.com": 0.3}
+            return {
+                "news": 2.0,
+                "wikipedia.org": 1.5,
+                "official": 1.5,
+                "youtube.com": 0.2,
+                "reddit.com": 0.2,
+                "facebook.com": 0.3,
+                "twitter.com": 0.3,
+                "x.com": 0.3,
+                "instagram.com": 0.3,
+                "linkedin.com": 0.3,
+            }
         return {}
 
     # ----------------------------------------------------------------- voting
@@ -841,9 +1172,9 @@ class WebSearchEngine:
     # matches ("Salman Khan" appeared in 10 of 107 titles) while false
     # positives are singletons. Voting over the whole result list is far more
     # robust than picking the single highest-scored match.
-    VOTE_WEIGHT = 8          # per additional match voting for the same name
+    VOTE_WEIGHT = 8  # per additional match voting for the same name
     WIKI_MEMBER_WEIGHT = 15  # cluster contains a wikipedia/imdb profile page
-    CONSENSUS_WEIGHT = 25    # name also seen in the other crop's matches
+    CONSENSUS_WEIGHT = 25  # name also seen in the other crop's matches
     # Minimum cluster score for a non-consensus pick to be confident.
     # A single Wikipedia page for a real public figure scores ~105 (90 base + 15 wiki).
     # A real identity has 2+ votes (8 pts each) + wiki (15) + best member score.
@@ -855,7 +1186,7 @@ class WebSearchEngine:
     # must clear the stricter pre-existing bar: one title mention is
     # indistinguishable from coincidence on random/AI faces.
     MIN_CLUSTER_SCORE_SINGLETON = 150
-    KG_TITLE_WEIGHT = 50     # cluster name aligns with the KG entity title
+    KG_TITLE_WEIGHT = 50  # cluster name aligns with the KG entity title
     EXACT_IMAGE_BOOST = 200  # MASSIVE boost when dHash confirms exact image match
     CROSS_PLATFORM_BONUS = 15  # per extra platform corroborating the name (n_platforms-1)
 
@@ -873,18 +1204,20 @@ class WebSearchEngine:
     def _votes_for(self, name: str, matches) -> int:
         """Count matches whose title mentions `name` anywhere (word-bounded)."""
         import re as _re
+
         if not name:
             return 0
         pat = _re.compile(r"\b" + _re.escape(name) + r"\b", _re.IGNORECASE)
         votes = 0
         for m in matches or []:
-            t = (m.title or "")
+            t = m.title or ""
             if t and pat.search(t):
                 votes += 1
         return votes
 
     def _cluster_members(self, name: str, matches) -> list[LensMatch]:
         import re as _re
+
         pat = _re.compile(r"\b" + _re.escape(name) + r"\b", _re.IGNORECASE)
         return [m for m in matches or [] if (m.title or "") and pat.search(m.title)]
 
@@ -905,11 +1238,17 @@ class WebSearchEngine:
         if not candidates:
             best = max(matches, key=lambda m: _score_visual_match(m, kg_title)[0])
             s, r = _score_visual_match(best, kg_title)
-            return (LensMatch(rank=best.rank, title=best.title, link=best.link,
-                              source=best.source, platform=best.platform,
-                              reason=f"scored (score={s}, {r}, votes=0)"),
-                    {"votes": 0, "has_wiki": False, "consensus": False,
-                     "cluster_score": s})
+            return (
+                LensMatch(
+                    rank=best.rank,
+                    title=best.title,
+                    link=best.link,
+                    source=best.source,
+                    platform=best.platform,
+                    reason=f"scored (score={s}, {r}, votes=0)",
+                ),
+                {"votes": 0, "has_wiki": False, "consensus": False, "cluster_score": s},
+            )
 
         scored_clusters = []
         for name in candidates:
@@ -917,9 +1256,10 @@ class WebSearchEngine:
             members = self._cluster_members(name, matches)
             member_scores = [(_score_visual_match(m, kg_title)[0], m) for m in members]
             best_score, best_member = max(member_scores, key=lambda t: t[0])
-            has_wiki = any("wikipedia.org" in (m.link or "").lower()
-                           or "imdb.com" in (m.link or "").lower()
-                           for m in members)
+            has_wiki = any(
+                "wikipedia.org" in (m.link or "").lower() or "imdb.com" in (m.link or "").lower()
+                for m in members
+            )
             # Domain diversity: a real identity's name appears across multiple
             # domains (LinkedIn + Wikipedia + news). A singleton on one domain
             # is usually a false positive.
@@ -931,7 +1271,8 @@ class WebSearchEngine:
             # 15 points per platform beyond the first.
             cross_platform_bonus = max(0, (num_domains - 1)) * self.CROSS_PLATFORM_BONUS
             consensus = bool(other_crop_names) and any(
-                self._name_match(name, o) for o in other_crop_names)
+                self._name_match(name, o) for o in other_crop_names
+            )
             kg_bonus = 0
             if kg_title and self._name_match(name, kg_title.lower()):
                 kg_bonus = self.KG_TITLE_WEIGHT
@@ -953,14 +1294,16 @@ class WebSearchEngine:
                 + cross_platform_bonus
                 + exact_image_bonus
             )
-            scored_clusters.append((cluster_score, votes, name, best_score,
-                                    best_member, has_wiki, consensus))
+            scored_clusters.append(
+                (cluster_score, votes, name, best_score, best_member, has_wiki, consensus)
+            )
         scored_clusters.sort(key=lambda t: (-t[0], -t[1]))
-        cluster_score, votes, name, best_score, best_member, has_wiki, consensus = scored_clusters[0]
+        cluster_score, votes, name, best_score, best_member, has_wiki, consensus = scored_clusters[
+            0
+        ]
 
         members = self._cluster_members(name, matches)
-        wiki_members = [m for m in members
-                        if "wikipedia.org" in (m.link or "").lower()]
+        wiki_members = [m for m in members if "wikipedia.org" in (m.link or "").lower()]
         if wiki_members:
             chosen = max(wiki_members, key=lambda m: _score_visual_match(m, kg_title)[0])
         else:
@@ -969,26 +1312,38 @@ class WebSearchEngine:
             # merely mention the person ('MUSK'S BLACK EYE: Elon Musk ...'
             # mentions Elon Musk but is a news headline, not a usable identity
             # result, and its leading name fails `_first_person_name`).
-            exact = [m for m in members
-                     if self._first_person_name(m).lower() == name.lower()]
+            exact = [m for m in members if self._first_person_name(m).lower() == name.lower()]
             pool = exact or members
             # Among those, prefer URLs that contain the person's name so the
             # returned `link` corroborates the identity (data accuracy: the
             # audit trail should point at a page that names the person).
             name_tokens = [p for p in name.replace("'", "").split() if len(p) >= 3]
-            by_url = [m for m in pool
-                      if any(p in (m.link or "").lower() for p in name_tokens)]
-            chosen = max(by_url or pool,
-                         key=lambda m: _score_visual_match(m, kg_title)[0])
+            by_url = [m for m in pool if any(p in (m.link or "").lower() for p in name_tokens)]
+            chosen = max(by_url or pool, key=lambda m: _score_visual_match(m, kg_title)[0])
         s, r = _score_visual_match(chosen, kg_title)
-        reason = (f"vote_winner (score={s}, votes={votes}, cluster={cluster_score}, "
-                  f"wiki={'yes' if has_wiki else 'no'}, "
-                  f"consensus={'yes' if consensus else 'no'})")
-        meta = {"votes": votes, "has_wiki": has_wiki, "consensus": consensus,
-                "cluster_score": cluster_score, "name": name}
-        return (LensMatch(rank=chosen.rank, title=chosen.title, link=chosen.link,
-                          source=chosen.source, platform=chosen.platform,
-                          reason=reason), meta)
+        reason = (
+            f"vote_winner (score={s}, votes={votes}, cluster={cluster_score}, "
+            f"wiki={'yes' if has_wiki else 'no'}, "
+            f"consensus={'yes' if consensus else 'no'})"
+        )
+        meta = {
+            "votes": votes,
+            "has_wiki": has_wiki,
+            "consensus": consensus,
+            "cluster_score": cluster_score,
+            "name": name,
+        }
+        return (
+            LensMatch(
+                rank=chosen.rank,
+                title=chosen.title,
+                link=chosen.link,
+                source=chosen.source,
+                platform=chosen.platform,
+                reason=reason,
+            ),
+            meta,
+        )
 
     def _select(
         self,
@@ -1010,13 +1365,20 @@ class WebSearchEngine:
         kg_match = self._kg_match(knowledge_graph_raw)
         kg_title = kg_match.title if kg_match else None
         if not all_visual and not kg_match:
-            raise RuntimeError("No visual matches found for this face. Try a clearer, front-facing image of a person with public web/social presence.")
+            raise RuntimeError(
+                "No visual matches found for this face. Try a clearer, front-facing image of a person with public web/social presence."
+            )
 
         # KG entity always wins outright (Lens is confident about WHO this is).
         if kg_match:
-            chosen = LensMatch(rank=None, title=kg_match.title, link=kg_match.link,
-                               source=kg_match.source, platform=kg_match.platform,
-                               reason="knowledge_graph_entity")
+            chosen = LensMatch(
+                rank=None,
+                title=kg_match.title,
+                link=kg_match.link,
+                source=kg_match.source,
+                platform=kg_match.platform,
+                reason="knowledge_graph_entity",
+            )
             return chosen, all_visual, by_domain, kg_match
 
         # Name-voting selection + abstain policy (see select_by_voting).
@@ -1036,12 +1398,19 @@ class WebSearchEngine:
         min_score = self.MIN_CLUSTER_SCORE
         if meta["votes"] < 2 and not meta["consensus"]:
             min_score = max(min_score, self.MIN_CLUSTER_SCORE_SINGLETON)
-        strong = (meta["votes"] >= 2) or meta["consensus"] or (meta["cluster_score"] >= self.MIN_CLUSTER_SCORE)
+        strong = (
+            (meta["votes"] >= 2)
+            or meta["consensus"]
+            or (meta["cluster_score"] >= self.MIN_CLUSTER_SCORE)
+        )
         confident = strong and meta["cluster_score"] >= min_score
         if not confident:
             chosen = LensMatch(
-                rank=None, title="No confident identification",
-                link="", source="", platform="abstain",
+                rank=None,
+                title="No confident identification",
+                link="",
+                source="",
+                platform="abstain",
                 reason=(
                     f"abstain (votes={meta['votes']}, wiki={'yes' if meta['has_wiki'] else 'no'}, "
                     f"cluster={meta['cluster_score']}<{min_score}, no KG; Lens returned no real "
@@ -1049,6 +1418,7 @@ class WebSearchEngine:
                 ),
             )
         return chosen, all_visual, by_domain, kg_match
+
     def _select_tail(
         self,
         all_visual: list[LensMatch],
@@ -1061,41 +1431,61 @@ class WebSearchEngine:
             if chosen:
                 return (
                     LensMatch(
-                        rank=chosen.rank, title=chosen.title, link=chosen.link,
-                        source=chosen.source, platform=chosen.platform,
+                        rank=chosen.rank,
+                        title=chosen.title,
+                        link=chosen.link,
+                        source=chosen.source,
+                        platform=chosen.platform,
                         reason="first official-domain match",
                     ),
-                    all_visual, by_domain, kg_match,
+                    all_visual,
+                    by_domain,
+                    kg_match,
                 )
         if policy == "news":
             chosen = next((m for m in all_visual if m.platform == "news"), None)
             if chosen:
                 return (
                     LensMatch(
-                        rank=chosen.rank, title=chosen.title, link=chosen.link,
-                        source=chosen.source, platform=chosen.platform,
+                        rank=chosen.rank,
+                        title=chosen.title,
+                        link=chosen.link,
+                        source=chosen.source,
+                        platform=chosen.platform,
                         reason="first news-domain match",
                     ),
-                    all_visual, by_domain, kg_match,
+                    all_visual,
+                    by_domain,
+                    kg_match,
                 )
         if all_visual:
             top = all_visual[0]
             return (
                 LensMatch(
-                    rank=top.rank, title=top.title, link=top.link,
-                    source=top.source, platform=top.platform,
+                    rank=top.rank,
+                    title=top.title,
+                    link=top.link,
+                    source=top.source,
+                    platform=top.platform,
                     reason=f"top visual match (policy={policy})",
                 ),
-                all_visual, by_domain, kg_match,
+                all_visual,
+                by_domain,
+                kg_match,
             )
         if kg_match:
             return (
                 LensMatch(
-                    rank=None, title=kg_match.title, link=kg_match.link,
-                    source=kg_match.source, platform=kg_match.platform,
+                    rank=None,
+                    title=kg_match.title,
+                    link=kg_match.link,
+                    source=kg_match.source,
+                    platform=kg_match.platform,
                     reason="knowledge graph fallback (no visual matches)",
                 ),
-                all_visual, by_domain, kg_match,
+                all_visual,
+                by_domain,
+                kg_match,
             )
         raise RuntimeError(
             "No visual matches found for this face. Try a clearer, front-facing image "
@@ -1127,15 +1517,16 @@ class WebSearchEngine:
 
     @staticmethod
     def _corroboration_cache_key(name: str) -> str:
-        return ("corr_" +
-                hashlib.sha256(name.lower().strip().encode("utf-8")).hexdigest()[:20])
+        return "corr_" + hashlib.sha256(name.lower().strip().encode("utf-8")).hexdigest()[:20]
 
     def _request_search(self, query: str) -> dict[str, Any]:
         """Plain SerpApi organic search (engine=google_search) with retries."""
         if not self.serpapi_key:
             raise ValueError("SERPAPI_KEY is not set. Get a free key at https://serpapi.com")
         params: dict[str, Any] = {
-            "engine": "google_search", "q": query, "num": 5,
+            "engine": "google_search",
+            "q": query,
+            "num": 5,
             "api_key": self.serpapi_key,
         }
         last_error: Exception | None = None
@@ -1143,7 +1534,9 @@ class WebSearchEngine:
             try:
                 resp = requests.get(SERPAPI_SEARCH_URL, params=params, timeout=self.timeout)
                 if resp.status_code in (429, 500, 502, 503, 504):
-                    raise RuntimeError(f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}")
+                    raise RuntimeError(
+                        f"SerpApi transient HTTP {resp.status_code}: {resp.text[:200]}"
+                    )
                 if resp.status_code != 200:
                     raise RuntimeError(f"SerpApi HTTP {resp.status_code}: {resp.text[:500]}")
                 data = resp.json()
@@ -1156,7 +1549,9 @@ class WebSearchEngine:
                     time.sleep(SERPAPI_BACKOFF_SECONDS)
                     continue
                 break
-        raise RuntimeError(f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}")
+        raise RuntimeError(
+            f"SerpApi search failed after {self.retries + 1} attempt(s): {last_error}"
+        )
 
     def corroborate_platforms(self, name: str, sites=None) -> dict[str, str]:
         """Confirm a candidate identity across social platforms.
@@ -1192,7 +1587,8 @@ class WebSearchEngine:
             return None
 
         # Parallel site queries: wall time ~= one query instead of 6x.
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import as_completed
+
         with ThreadPoolExecutor(max_workers=self.CORROB_CONCURRENCY) as pool:
             futures = [pool.submit(_query_site, s, d) for s, d in sites]
             for fut in as_completed(futures):
@@ -1213,7 +1609,7 @@ class WebSearchEngine:
         (privacy-preserving abstains cost zero extra queries).
         """
         try:
-            title = (getattr(selected, "title", "") or "")
+            title = getattr(selected, "title", "") or ""
             if not title or title == "No confident identification":
                 return {}
             name = self._first_person_name(selected)
@@ -1245,8 +1641,10 @@ class WebSearchEngine:
             # re-charging SerpApi.
             cached_visual = cached.get("visual_matches") or []
             cached_kg = cached.get("knowledge_graph")
-            all_visual = [_match_from_visual(i, m, "cached visual match #{}".format(i))
-                          for i, m in enumerate(cached_visual, start=1)]
+            all_visual = [
+                _match_from_visual(i, m, f"cached visual match #{i}")
+                for i, m in enumerate(cached_visual, start=1)
+            ]
             by_domain = {}
             for m in all_visual:
                 by_domain.setdefault(m.platform, []).append(m)
@@ -1254,7 +1652,11 @@ class WebSearchEngine:
             kg_title = kg_match.title if kg_match else None
             if not all_visual and not kg_match:
                 selected = LensMatch(
-                    rank=None, title="", link="", source="", platform="",
+                    rank=None,
+                    title="",
+                    link="",
+                    source="",
+                    platform="",
                     reason="no_visual_matches (cached)",
                 )
             else:
@@ -1264,7 +1666,11 @@ class WebSearchEngine:
                     )
                 except RuntimeError:
                     selected = LensMatch(
-                        rank=None, title="", link="", source="", platform="",
+                        rank=None,
+                        title="",
+                        link="",
+                        source="",
+                        platform="",
                         reason="no_visual_matches (cached)",
                     )
             self.last_diagnostics = SearchDiagnostics(
@@ -1311,7 +1717,8 @@ class WebSearchEngine:
         # Cross-engine duplicates get a +5 boost in the scoring layer (see
         # `_match_from_visual` -> a matched link across engines is strong
         # evidence the same person owns that profile).
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import as_completed
+
         engines = [
             ("google_lens", {"engine": "google_lens"}),
             ("google_lens_social", {"engine": "google_lens", "source": "social"}),
@@ -1322,8 +1729,10 @@ class WebSearchEngine:
         def _fetch_engine(name_params):
             name, params = name_params
             try:
-                return (name, self._request_serpapi_engine(
-                    image_url, policy=policy, extra_params=params))
+                return (
+                    name,
+                    self._request_serpapi_engine(image_url, policy=policy, extra_params=params),
+                )
             except Exception as e:
                 return (name, {"_error": f"{type(e).__name__}: {e}"})
 
@@ -1345,8 +1754,7 @@ class WebSearchEngine:
         cross_engine_counts: dict[str, int] = {}  # link -> how many engines surfaced it
         cascade_log: list[str] = []
         # Engine priority: google_lens (most authoritative) first
-        priority = ("google_lens", "google_lens_social",
-                    "google_reverse_image", "bing_visual")
+        priority = ("google_lens", "google_lens_social", "google_reverse_image", "bing_visual")
         for engine_name in priority:
             payload = engine_results.get(engine_name, {})
             if "_error" in payload:
@@ -1428,10 +1836,7 @@ class WebSearchEngine:
             serpapi_total_time = 0.0
             try:
                 serpapi_total_time = float(
-                    (results.get("search_metadata") or {}).get(
-                        "total_time_taken"
-                    )
-                    or 0.0
+                    (results.get("search_metadata") or {}).get("total_time_taken") or 0.0
                 )
             except (TypeError, ValueError):
                 serpapi_total_time = 0.0
@@ -1441,7 +1846,11 @@ class WebSearchEngine:
                 face_hash=face_hash,
                 policy=policy,
                 selected=LensMatch(
-                    rank=None, title="", link="", source="", platform="",
+                    rank=None,
+                    title="",
+                    link="",
+                    source="",
+                    platform="",
                     reason="no_visual_matches",
                 ),
                 visual_matches=[],
@@ -1467,9 +1876,7 @@ class WebSearchEngine:
 
         serpapi_total = None
         try:
-            serpapi_total = float(
-                (results.get("search_metadata") or {}).get("total_time_taken")
-            )
+            serpapi_total = float((results.get("search_metadata") or {}).get("total_time_taken"))
         except (TypeError, ValueError):
             serpapi_total = None
 
@@ -1534,14 +1941,18 @@ class WebSearchEngine:
             visual_count = len(all_visual)
         except (RuntimeError, ValueError, TypeError):
             sel_raw = cached.get("selected")
-            chosen_dict = dict(sel_raw) if isinstance(sel_raw, dict) else {
-                "rank": None,
-                "title": "",
-                "link": "",
-                "source": "",
-                "platform": "",
-                "reason": "no_visual_matches (cached)",
-            }
+            chosen_dict = (
+                dict(sel_raw)
+                if isinstance(sel_raw, dict)
+                else {
+                    "rank": None,
+                    "title": "",
+                    "link": "",
+                    "source": "",
+                    "platform": "",
+                    "reason": "no_visual_matches (cached)",
+                }
+            )
             kg_dict = cached.get("knowledge_graph")
             all_visual = fallback_visual
             visual_count = int(cached.get("visual_match_count", 0))
@@ -1658,7 +2069,7 @@ class WebSearchEngine:
         tb = {p for p in b.split() if len(p) > 3}
         return bool(ta & tb)
 
-    def _get_cached_by_face_hash(self, face_hash: str) -> "tuple[dict[str, Any], str] | None":
+    def _get_cached_by_face_hash(self, face_hash: str) -> tuple[dict[str, Any], str] | None:
         """Find any prior cache entry whose face_hash matches.
         Returns (cached_payload, cache_key) or None.
         Use this as a soft fallback: if the same face has been seen before
@@ -1669,7 +2080,7 @@ class WebSearchEngine:
         fh = face_hash.lower()
         for path in glob.glob(os.path.join(CACHE_DIR, "*.json")):
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     d = json.load(f)
             except (OSError, ValueError):
                 continue
@@ -1703,15 +2114,21 @@ class WebSearchEngine:
             cached_visual = cached.get("visual_matches") or []
             cached_kg = cached.get("knowledge_graph")
             image_url = cached.get("query_image_url", "<cached>")
-            all_visual = [_match_from_visual(i, m, "cached visual match #{}".format(i))
-                          for i, m in enumerate(cached_visual, start=1)]
+            all_visual = [
+                _match_from_visual(i, m, f"cached visual match #{i}")
+                for i, m in enumerate(cached_visual, start=1)
+            ]
             by_domain = {}
             for m in all_visual:
                 by_domain.setdefault(m.platform, []).append(m)
             kg_match = self._kg_match(cached_kg)
             if not all_visual and not kg_match:
                 selected = LensMatch(
-                    rank=None, title="", link="", source="", platform="",
+                    rank=None,
+                    title="",
+                    link="",
+                    source="",
+                    platform="",
                     reason="no_visual_matches (cached)",
                 )
             else:
@@ -1721,7 +2138,11 @@ class WebSearchEngine:
                     )
                 except RuntimeError:
                     selected = LensMatch(
-                        rank=None, title="", link="", source="", platform="",
+                        rank=None,
+                        title="",
+                        link="",
+                        source="",
+                        platform="",
                         reason="no_visual_matches (cached)",
                     )
             lens = LensResult(
@@ -1760,7 +2181,7 @@ class WebSearchEngine:
         fh_match = self._get_cached_by_face_hash(face_hash)
         if fh_match is not None:
             fh_cached, fh_key = fh_match
-            cached_sel = (fh_cached.get("selected") or {})
+            cached_sel = fh_cached.get("selected") or {}
             cached_reason = (cached_sel.get("reason") or "") if isinstance(cached_sel, dict) else ""
             cached_is_empty = (
                 int(fh_cached.get("visual_match_count", 0)) == 0
@@ -1809,7 +2230,7 @@ class WebSearchEngine:
         face_hash: str | None = None,
         policy: str = "social",
         plain_bytes: bytes | None = None,
-    ) -> tuple[str, "LensResult", float, float, str]:
+    ) -> tuple[str, LensResult, float, float, str]:
         """Run two Lens searches (context crop + tight crop) and pick the
         person whose name is voted for across BOTH result lists.
 
@@ -1819,12 +2240,17 @@ class WebSearchEngine:
         enhancement). ``plain_bytes`` is optional; when provided and the
         enhanced crop returns 0 matches, the plain crop is retried.
         """
-        def _variant_search(primary: bytes, primary_tag: str, fallback: bytes | None, fallback_tag: str):
+
+        def _variant_search(
+            primary: bytes, primary_tag: str, fallback: bytes | None, fallback_tag: str
+        ):
             # Try the primary variant; on empty results or hard failure,
             # retry once with the fallback variant.
             try:
                 res = self.upload_and_search(
-                    primary, face_hash=face_hash + ":" + primary_tag if face_hash else None, policy=policy,
+                    primary,
+                    face_hash=face_hash + ":" + primary_tag if face_hash else None,
+                    policy=policy,
                 )
             except Exception:
                 res = None
@@ -1833,7 +2259,9 @@ class WebSearchEngine:
             if fallback:
                 try:
                     res2 = self.upload_and_search(
-                        fallback, face_hash=face_hash + ":" + fallback_tag if face_hash else None, policy=policy,
+                        fallback,
+                        face_hash=face_hash + ":" + fallback_tag if face_hash else None,
+                        policy=policy,
                     )
                 except Exception:
                     res2 = None
@@ -1844,13 +2272,18 @@ class WebSearchEngine:
             return res
 
         url1, lens1, up1, lens1_ms, host1 = _variant_search(
-            enhanced_bytes, "enhanced", plain_bytes, "plain",
+            enhanced_bytes,
+            "enhanced",
+            plain_bytes,
+            "plain",
         )
         if lens1 is None:
             raise RuntimeError("Google Lens upload/search failed for all image variants.")
         try:
             url2, lens2, up2, lens2_ms, host2 = self.upload_and_search(
-                tight_bytes, face_hash=face_hash + ":tight" if face_hash else None, policy=policy,
+                tight_bytes,
+                face_hash=face_hash + ":tight" if face_hash else None,
+                policy=policy,
             )
         except Exception:
             # Tight crop may produce 0 visual matches; fall back to single-pass.
@@ -1879,6 +2312,7 @@ class WebSearchEngine:
         real_names2 = {n for n in names2 if n}
 
         from dataclasses import replace as _dc_replace
+
         boosted: list[LensMatch] = []
         for m in lens1.visual_matches:
             person = self._first_person_name(m)
@@ -1903,7 +2337,8 @@ class WebSearchEngine:
         # the name in either list (boosted already contains both, deduped).
         if lens1.knowledge_graph:
             chosen = LensMatch(
-                rank=None, title=lens1.knowledge_graph.title,
+                rank=None,
+                title=lens1.knowledge_graph.title,
                 link=lens1.knowledge_graph.link,
                 source=lens1.knowledge_graph.source,
                 platform=lens1.knowledge_graph.platform,
@@ -1911,7 +2346,8 @@ class WebSearchEngine:
             )
         else:
             chosen, meta = self.select_by_voting(
-                boosted, kg_title=None,
+                boosted,
+                kg_title=None,
                 other_crop_names=(real_names1 | real_names2),
             )
             # Same abstain policy as single-crop: a lone Wikipedia page with 1
@@ -1919,8 +2355,11 @@ class WebSearchEngine:
             strong = (meta["votes"] >= 2) or meta["consensus"]
             if not strong:
                 chosen = LensMatch(
-                    rank=None, title="No confident identification",
-                    link="", source="", platform="abstain",
+                    rank=None,
+                    title="No confident identification",
+                    link="",
+                    source="",
+                    platform="abstain",
                     reason=(
                         f"abstain (votes={meta['votes']}, wiki={'yes' if meta['has_wiki'] else 'no'}, "
                         f"consensus={'yes' if meta['consensus'] else 'no'}, "
@@ -1942,7 +2381,8 @@ class WebSearchEngine:
             cached=False,
             cache_key=lens1.cache_key,
             cache_hit=False,
-            serpapi_total_time_s=(lens1.serpapi_total_time_s or 0) + (lens2.serpapi_total_time_s or 0),
+            serpapi_total_time_s=(lens1.serpapi_total_time_s or 0)
+            + (lens2.serpapi_total_time_s or 0),
             upload_ms=up1 + up2,
             lens_ms=lens1_ms + lens2_ms,
             upload_host=host1,

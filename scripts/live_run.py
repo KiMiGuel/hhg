@@ -41,7 +41,10 @@ def _read_env() -> dict[str, str]:
         "PRIVATE_KEY": os.getenv(
             "PRIVATE_KEY",
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-        ).strip().strip('"').strip("'"),
+        )
+        .strip()
+        .strip('"')
+        .strip("'"),
         "CONTRACT_ADDRESS": os.getenv("CONTRACT_ADDRESS", "").strip().strip('"').strip("'"),
     }
 
@@ -98,7 +101,9 @@ def _wait_for_rpc(rpc_url: str, seconds: int = 15) -> Web3:
     raise ConnectionError(f"RPC not reachable at {rpc_url}: {last_error or 'timeout'}")
 
 
-def ensure_anvil(rpc_url: str, auto_start: bool = True, fresh: bool = False, visible: bool = False) -> Web3:
+def ensure_anvil(
+    rpc_url: str, auto_start: bool = True, fresh: bool = False, visible: bool = False
+) -> Web3:
     """Ensure local Anvil is reachable. Public/testnet RPCs are never auto-started."""
     is_local = "127.0.0.1" in rpc_url or "localhost" in rpc_url
     if not is_local:
@@ -112,7 +117,9 @@ def ensure_anvil(rpc_url: str, auto_start: bool = True, fresh: bool = False, vis
 
     try:
         w3 = _wait_for_rpc(rpc_url, seconds=2)
-        console.print(f"[green]OK[/green] Local Anvil already running (block {w3.eth.block_number})")
+        console.print(
+            f"[green]OK[/green] Local Anvil already running (block {w3.eth.block_number})"
+        )
         return w3
     except Exception:
         if not auto_start:
@@ -159,7 +166,9 @@ def resolve_image(args: argparse.Namespace) -> str:
     if args.camera:
         from src.camera import capture_from_camera
 
-        console.print(Panel("[bold cyan]Camera capture mode[/bold cyan]\nSPACE = capture, ESC = cancel"))
+        console.print(
+            Panel("[bold cyan]Camera capture mode[/bold cyan]\nSPACE = capture, ESC = cancel")
+        )
         captured = capture_from_camera(output_path=args.output, camera_index=args.camera_index)
         if not captured:
             raise RuntimeError("Camera capture cancelled or failed.")
@@ -179,17 +188,38 @@ def build_parser() -> argparse.ArgumentParser:
         description="ONE-CLICK LIVE: camera/image -> SerpApi Google Lens -> blockchain proof",
     )
     parser.add_argument("--image", help="path to input face image")
-    parser.add_argument("--camera", action="store_true", help="capture a photo from webcam before running")
+    parser.add_argument(
+        "--camera", action="store_true", help="capture a photo from webcam before running"
+    )
     parser.add_argument("--camera-index", type=int, default=0, help="OpenCV camera index")
-    parser.add_argument("--output", default=str(ROOT / "data" / "captured_face.jpg"), help="camera capture output path")
+    parser.add_argument(
+        "--output",
+        default=str(ROOT / "data" / "captured_face.jpg"),
+        help="camera capture output path",
+    )
     parser.add_argument("--face", type=int, default=None, help="face index for multi-face images")
-    parser.add_argument("--fresh-chain", action="store_true", help="restart local Anvil and redeploy for a clean demo")
-    parser.add_argument("--visible-node", action="store_true", help="start Anvil with a visible console window if possible")
+    parser.add_argument(
+        "--fresh-chain",
+        action="store_true",
+        help="restart local Anvil and redeploy for a clean demo",
+    )
+    parser.add_argument(
+        "--visible-node",
+        action="store_true",
+        help="start Anvil with a visible console window if possible",
+    )
     parser.add_argument("--no-auto-node", action="store_true", help="do not auto-start local Anvil")
-    parser.add_argument("--force-deploy", action="store_true", help="redeploy FaceRegistry even if current address has code")
-    parser.add_argument("--no-chain", action="store_true",
-                        help="skip Anvil/blockchain entirely (face detection + web search only; "
-                             "no Stage-3 anchoring, no report chain_id)")
+    parser.add_argument(
+        "--force-deploy",
+        action="store_true",
+        help="redeploy FaceRegistry even if current address has code",
+    )
+    parser.add_argument(
+        "--no-chain",
+        action="store_true",
+        help="skip Anvil/blockchain entirely (face detection + web search only; "
+        "no Stage-3 anchoring, no report chain_id)",
+    )
     return parser
 
 
@@ -198,7 +228,9 @@ def main() -> int:
     try:
         env = _read_env()
         if not env["SERPAPI_KEY"]:
-            raise RuntimeError("SERPAPI_KEY is missing in .env; live Google Lens search cannot run.")
+            raise RuntimeError(
+                "SERPAPI_KEY is missing in .env; live Google Lens search cannot run."
+            )
 
         console.print(
             Panel.fit(
@@ -209,9 +241,7 @@ def main() -> int:
         )
 
         if args.no_chain:
-            console.print(
-                "[dim]--no-chain: skipping Anvil/blockchain checks[/dim]"
-            )
+            console.print("[dim]--no-chain: skipping Anvil/blockchain checks[/dim]")
         else:
             w3 = ensure_anvil(
                 env["RPC_URL"],
@@ -228,8 +258,13 @@ def main() -> int:
 
         from pipeline import run_pipeline
 
-        run_pipeline(image, demo_mode=False, face_index=args.face,
-                     skip_chain=args.no_chain, show_gui=not args.no_chain)
+        run_pipeline(
+            image,
+            demo_mode=False,
+            face_index=args.face,
+            skip_chain=args.no_chain,
+            show_gui=not args.no_chain,
+        )
         return 0
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user.[/yellow]")
@@ -239,6 +274,7 @@ def main() -> int:
         # so the next time something breaks we can see WHERE in the codebase
         # the error happened, not just the exception message.
         import traceback as _tb
+
         tb_text = _tb.format_exc()
         try:
             print(tb_text, file=sys.stderr, flush=True)

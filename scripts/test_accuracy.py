@@ -16,6 +16,7 @@ independent of Lens noise.
 
 With `--live`, the pipeline runs end-to-end and consumes SerpApi credits.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,8 +81,13 @@ def run_one(image_path: Path) -> dict | None:
     before = latest_report_for(image_path.name)
     t0 = time.time()
     result = subprocess.run(
-        cmd, cwd=str(ROOT), env=env, capture_output=True,
-        encoding="utf-8", errors="replace", timeout=240,
+        cmd,
+        cwd=str(ROOT),
+        env=env,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=240,
     )
     dt = time.time() - t0
     if result.returncode != 0:
@@ -118,10 +124,15 @@ def score_report(report: dict, expected_names: list[str]) -> tuple[bool, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--keep-cache", action="store_true",
-                        help="Do not wipe cache/ before running.")
-    parser.add_argument("--min-accuracy", type=float, default=0.8,
-                        help="Minimum required accuracy (0..1). Default 0.8 (80%%).")
+    parser.add_argument(
+        "--keep-cache", action="store_true", help="Do not wipe cache/ before running."
+    )
+    parser.add_argument(
+        "--min-accuracy",
+        type=float,
+        default=0.8,
+        help="Minimum required accuracy (0..1). Default 0.8 (80%%).",
+    )
     args = parser.parse_args()
 
     if not args.keep_cache and CACHE_DIR.exists():

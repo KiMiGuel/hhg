@@ -4,20 +4,21 @@ Anvil node, anchors a record, re-verifies it, and runs the tamper drill.
 
 Usage:  python scripts/smoke_test.py [optional_path_to_face_image]
 """
+
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dotenv import load_dotenv  # noqa: E402
+from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.blockchain import BlockchainManager  # noqa: E402
-from src.config import CONTRACT_ADDRESS, PRIVATE_KEY, RPC_URL  # noqa: E402
-from scripts.deploy import compile_contract  # noqa: E402
+from web3 import Web3
 
-from web3 import Web3  # noqa: E402
+from scripts.deploy import compile_contract
+from src.blockchain import BlockchainManager
+from src.config import CONTRACT_ADDRESS, PRIVATE_KEY, RPC_URL
 
 
 def main():
@@ -74,8 +75,10 @@ def main():
         print("    SKIP: record already anchored for this face hash")
     else:
         anchor_receipt = bc.anchor_record(face_hash, post_url, fingerprint)
-        print(f"    OK: tx 0x{anchor_receipt.transactionHash.hex()} "
-              f"in block {anchor_receipt.blockNumber}, gas {anchor_receipt.gasUsed}")
+        print(
+            f"    OK: tx 0x{anchor_receipt.transactionHash.hex()} "
+            f"in block {anchor_receipt.blockNumber}, gas {anchor_receipt.gasUsed}"
+        )
 
     # duplicate registration must be detected, not silently overwritten
     assert bc.record_exists(face_hash), "record_exists() returned False after anchoring!"
@@ -85,7 +88,9 @@ def main():
     print("[4] Verifying on-chain record ...")
     result = bc.verify_on_chain(face_hash, post_url)
     assert result["valid"], f"Verification failed unexpectedly: {result}"
-    print(f"    OK: on-chain hash matches local fingerprint ({result['on_chain_data_hash'][:18]}...)")
+    print(
+        f"    OK: on-chain hash matches local fingerprint ({result['on_chain_data_hash'][:18]}...)"
+    )
 
     tampered = bc.verify_on_chain(face_hash, post_url + "X")
     assert not tampered["valid"], "Tamper drill FAILED -- mutated data still verified!"

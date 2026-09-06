@@ -1,11 +1,10 @@
 """Tests for report.py - JSON + Markdown report generation."""
+
 import json
 import os
 import sys
 import tempfile
 import time
-
-import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -60,7 +59,7 @@ class TestWriteReport:
         with tempfile.TemporaryDirectory() as tmpdir:
             data = self._sample_data()
             json_path = write_report(data, out_dir=tmpdir)
-            with open(json_path, "r", encoding="utf-8") as f:
+            with open(json_path, encoding="utf-8") as f:
                 loaded = json.load(f)
             assert loaded["stage1"]["face_hash"] == data["stage1"]["face_hash"]
             assert loaded["stage4"]["verification"] == "PASSED"
@@ -70,7 +69,7 @@ class TestWriteReport:
             data = self._sample_data()
             json_path = write_report(data, out_dir=tmpdir)
             md_path = json_path.replace(".json", ".md")
-            with open(md_path, "r", encoding="utf-8") as f:
+            with open(md_path, encoding="utf-8") as f:
                 md_content = f.read()
             assert "Pipeline Verification Report" in md_content
             assert data["stage1"]["face_hash"] in md_content

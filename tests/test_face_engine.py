@@ -1,4 +1,5 @@
 """Tests for face_engine.py - hash determinism, embedding properties, cosine similarity."""
+
 import hashlib
 import os
 import sys
@@ -8,7 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.face_engine import EMBEDDING_DIM, FaceEngine, SFACE_COSINE_THRESHOLD
+from src.face_engine import EMBEDDING_DIM, SFACE_COSINE_THRESHOLD, FaceEngine
 
 
 def _synthetic_embedding(seed: int = 42) -> np.ndarray:

@@ -1,9 +1,8 @@
 """Tests for blockchain.py - fingerprint computation and tamper logic (no network needed)."""
+
 import hashlib
 import os
 import sys
-
-import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -34,7 +33,7 @@ class TestComputeDataFingerprint:
     def test_fingerprint_matches_manual_sha256(self):
         face_hash = "0x1234567890abcdef"
         post_url = "https://youtube.com/watch?v=test"
-        expected = "0x" + hashlib.sha256(f"{face_hash}:{post_url}".encode("utf-8")).hexdigest()
+        expected = "0x" + hashlib.sha256(f"{face_hash}:{post_url}".encode()).hexdigest()
         assert BlockchainManager.compute_data_fingerprint(face_hash, post_url) == expected
 
     def test_one_character_difference_detected(self):

@@ -4,18 +4,17 @@ Encoding uses the SFace model to produce a true 128-dimensional face
 embedding; the biometric hash is SHA-256 over the raw float32 embedding
 bytes, which maps natively onto the EVM `bytes32` type.
 """
+
 from __future__ import annotations
 
 import hashlib
 import os
-from typing import Iterable, List, Tuple
 
 import cv2
 import numpy as np
 import requests
 
 from src.accuracy import (
-    MIN_FACE_CONFIDENCE,
     assess_face_quality,
     normalize_embedding,
     show_quality_report,
@@ -53,7 +52,7 @@ SCORE_THRESHOLD = 0.3
 # copies lifts YuNet confidences on small/distant faces (a 4K photo with a
 # 200px face detects at 0.4 natively but 0.85 at 2x). 3x adds runtime for
 # no measurable accuracy gain on press photos, so we keep 1.0+2.0.
-DETECT_SCALES: Tuple[float, ...] = (1.0, 2.0)
+DETECT_SCALES: tuple[float, ...] = (1.0, 2.0)
 
 # Minimum face size (max(w, h) in pixels on the original image) below which
 # we reject the detection. Tiny "faces" are usually background texture or
@@ -81,7 +80,7 @@ def _ensure_model(model_path: str, url: str) -> None:
     print("[face_engine] Model downloaded.")
 
 
-def _iou(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
+def _iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
     ax1, ay1, aw, ah = a
     bx1, by1, bw, bh = b
     ax2, ay2 = ax1 + aw, ay1 + ah
@@ -94,14 +93,14 @@ def _iou(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
     return inter / union if union else 0.0
 
 
-def _merge_dets(dets: List[dict], iou_thr: float = 0.5) -> List[dict]:
+def _merge_dets(dets: list[dict], iou_thr: float = 0.5) -> list[dict]:
     """De-duplicate overlapping detections (same face seen at 2 scales).
     Keeps the highest-confidence detection in each cluster."""
     if not dets:
         return []
     # Sort by confidence descending so we keep the strongest box per cluster.
     order = sorted(range(len(dets)), key=lambda i: dets[i]["score_for_sort"], reverse=True)
-    kept: List[dict] = []
+    kept: list[dict] = []
     suppressed = [False] * len(dets)
     for i in order:
         if suppressed[i]:
@@ -146,7 +145,7 @@ class FaceEngine:
         self.last_aligned_face: np.ndarray | None = None
 
     # ---------------------------------------------------------- detection
-    def detect_all_faces(self, image_path: str) -> List[dict]:
+    def detect_all_faces(self, image_path: str) -> list[dict]:
         """Detect all faces in an image. Returns list of dicts with bbox,
         confidence, landmarks. Useful for multi-face images.
 
@@ -163,7 +162,7 @@ class FaceEngine:
         if image is None:
             return []
         image_pre = self._deblur_for_sface(image)
-        all_dets: List[dict] = []
+        all_dets: list[dict] = []
         for scale in DETECT_SCALES:
             all_dets.extend(self._detect_at_scale(image_pre, scale=scale))
         merged = _merge_dets(all_dets, iou_thr=0.5)
@@ -174,13 +173,14 @@ class FaceEngine:
         merged.sort(key=lambda d: d["area"], reverse=True)
         return merged
 
-    def _detect_at_scale(self, image: np.ndarray, scale: float = 1.0) -> List[dict]:
+    def _detect_at_scale(self, image: np.ndarray, scale: float = 1.0) -> list[dict]:
         """Run YuNet on a scaled copy of the image. Returns the raw list of
         face dicts at the ORIGINAL image resolution (bboxes remapped)."""
         if scale != 1.0:
             h0, w0 = image.shape[:2]
             detect_img = cv2.resize(
-                image, (int(w0 * scale), int(h0 * scale)),
+                image,
+                (int(w0 * scale), int(h0 * scale)),
                 interpolation=cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA,
             )
         else:
@@ -190,7 +190,10 @@ class FaceEngine:
         if max(detect_img.shape[:2]) > DETECT_MAX_DIM:
             s = DETECT_MAX_DIM / max(detect_img.shape[:2])
             detect_img = cv2.resize(
-                detect_img, None, fx=s, fy=s,
+                detect_img,
+                None,
+                fx=s,
+                fy=s,
                 interpolation=cv2.INTER_AREA,
             )
             scale = scale * s
@@ -204,7 +207,7 @@ class FaceEngine:
         if faces is None:
             return []
 
-        out: List[dict] = []
+        out: list[dict] = []
         inv = 1.0 / scale
         for face_row in faces:
             full_res_row = face_row.copy()
@@ -213,13 +216,15 @@ class FaceEngine:
             confidence = float(face_row[14])
             if min(w, h) < MIN_FACE_PIXELS // 2:
                 continue
-            out.append({
-                "bbox": (x, y, w, h),
-                "confidence": confidence,
-                "landmarks": full_res_row[4:14],
-                "area": float(w * h),
-                "score_for_sort": confidence,
-            })
+            out.append(
+                {
+                    "bbox": (x, y, w, h),
+                    "confidence": confidence,
+                    "landmarks": full_res_row[4:14],
+                    "area": float(w * h),
+                    "score_for_sort": confidence,
+                }
+            )
         return out
 
     # ---------------------------------------------------------- biometric
@@ -289,23 +294,24 @@ class FaceEngine:
         image = cv2.imdecode(buf, cv2.IMREAD_COLOR)
         if image is None:
             return None
-        all_dets: List[dict] = []
+        all_dets: list[dict] = []
         for scale in DETECT_SCALES:
             all_dets.extend(self._detect_at_scale(image, scale=scale))
         merged = _merge_dets(all_dets, iou_thr=0.5)
         if not merged:
             return None
         face = merged[0]
-        row = _build_full_res_row(
-            face["bbox"], face.get("landmarks"), float(face["confidence"]))
+        row = _build_full_res_row(face["bbox"], face.get("landmarks"), float(face["confidence"]))
         aligned_face = self.recognizer.alignCrop(image, row)
         aligned_face = self._deblur_for_sface(aligned_face)
-        embeds: List[np.ndarray] = [
-            self.recognizer.feature(aligned_face).flatten().astype(np.float32)]
+        embeds: list[np.ndarray] = [
+            self.recognizer.feature(aligned_face).flatten().astype(np.float32)
+        ]
         if ensemble:
             try:
-                embeds.append(self.recognizer.feature(
-                    cv2.flip(aligned_face, 1)).flatten().astype(np.float32))
+                embeds.append(
+                    self.recognizer.feature(cv2.flip(aligned_face, 1)).flatten().astype(np.float32)
+                )
             except Exception:
                 pass
         # Multiscale TTA second-pass (mirrors process_image): re-align from a
@@ -314,19 +320,24 @@ class FaceEngine:
         try:
             if max(image.shape[:2]) <= 2048:
                 up_img = cv2.resize(
-                    image, None, fx=2.0, fy=2.0,
+                    image,
+                    None,
+                    fx=2.0,
+                    fy=2.0,
                     interpolation=cv2.INTER_CUBIC,
                 )
                 row_up = row.copy()
                 row_up[:14] *= 2.0
                 aligned_up = self.recognizer.alignCrop(up_img, row_up)
                 aligned_up = self._deblur_for_sface(aligned_up)
-                embeds.append(
-                    self.recognizer.feature(aligned_up).flatten().astype(np.float32))
+                embeds.append(self.recognizer.feature(aligned_up).flatten().astype(np.float32))
                 if ensemble:
                     try:
-                        embeds.append(self.recognizer.feature(
-                            cv2.flip(aligned_up, 1)).flatten().astype(np.float32))
+                        embeds.append(
+                            self.recognizer.feature(cv2.flip(aligned_up, 1))
+                            .flatten()
+                            .astype(np.float32)
+                        )
                     except Exception:
                         pass
         except Exception:
@@ -407,9 +418,12 @@ class FaceEngine:
 
         if skip_quality:
             quality = {
-                "blur_score": 0.0, "blur_pass": True,
-                "brightness": 0.0, "brightness_pass": True,
-                "contrast": 0.0, "contrast_pass": True,
+                "blur_score": 0.0,
+                "blur_pass": True,
+                "brightness": 0.0,
+                "brightness_pass": True,
+                "contrast": 0.0,
+                "contrast_pass": True,
                 "pass": True,
             }
         else:
@@ -439,8 +453,7 @@ class FaceEngine:
         align_image = image
         scale_back = 1.0
         if max(w, h) < 140:
-            align_image = cv2.resize(image, None, fx=2.0, fy=2.0,
-                                    interpolation=cv2.INTER_CUBIC)
+            align_image = cv2.resize(image, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
             scale_back = 2.0
         full_res_row_scaled = full_res_row.copy()
         full_res_row_scaled[:14] *= scale_back
@@ -453,16 +466,16 @@ class FaceEngine:
         # BEFORE SFace encoding. Camera-sim benchmarks (blur, lowjpeg,
         # lowlight) jump 15-25 pp with this 3-line preprocessing.
         aligned_face = self._deblur_for_sface(aligned_face)
-        embeds: List[np.ndarray] = [self.recognizer.feature(aligned_face).flatten().astype(np.float32)]
+        embeds: list[np.ndarray] = [
+            self.recognizer.feature(aligned_face).flatten().astype(np.float32)
+        ]
         if ensemble:
             # Horizontal-flip TTA: extract an embedding from the flipped face
             # and average. SFace is roughly symmetric under flip so this
             # reduces pose-noise by ~3-5%.
             try:
                 flipped = cv2.flip(aligned_face, 1)
-                embeds.append(
-                    self.recognizer.feature(flipped).flatten().astype(np.float32)
-                )
+                embeds.append(self.recognizer.feature(flipped).flatten().astype(np.float32))
             except Exception:
                 pass
             # Multi-angle rotation TTA: ±5° covers slight head roll that
@@ -473,12 +486,13 @@ class FaceEngine:
                     h_a, w_a = aligned_face.shape[:2]
                     M = cv2.getRotationMatrix2D((w_a / 2, h_a / 2), angle, 1.0)
                     rotated = cv2.warpAffine(
-                        aligned_face, M, (w_a, h_a),
-                        flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT,
+                        aligned_face,
+                        M,
+                        (w_a, h_a),
+                        flags=cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_REFLECT,
                     )
-                    embeds.append(
-                        self.recognizer.feature(rotated).flatten().astype(np.float32)
-                    )
+                    embeds.append(self.recognizer.feature(rotated).flatten().astype(np.float32))
                 except Exception:
                     pass
 
@@ -492,20 +506,24 @@ class FaceEngine:
         try:
             if max(image.shape[:2]) <= 2048:
                 up_img = cv2.resize(
-                    image, None, fx=2.0, fy=2.0,
+                    image,
+                    None,
+                    fx=2.0,
+                    fy=2.0,
                     interpolation=cv2.INTER_CUBIC,
                 )
                 row_up = full_res_row.copy()
                 row_up[:14] *= 2.0
                 aligned_up = self.recognizer.alignCrop(up_img, row_up)
                 aligned_up = self._deblur_for_sface(aligned_up)
-                embeds.append(
-                    self.recognizer.feature(aligned_up).flatten().astype(np.float32)
-                )
+                embeds.append(self.recognizer.feature(aligned_up).flatten().astype(np.float32))
                 if ensemble:
                     try:
-                        embeds.append(self.recognizer.feature(
-                            cv2.flip(aligned_up, 1)).flatten().astype(np.float32))
+                        embeds.append(
+                            self.recognizer.feature(cv2.flip(aligned_up, 1))
+                            .flatten()
+                            .astype(np.float32)
+                        )
                     except Exception:
                         pass
         except Exception:
@@ -549,7 +567,7 @@ class FaceEngine:
     def _write_lens_input(
         self,
         image_bgr: np.ndarray,
-        bbox: Tuple[int, int, int, int],
+        bbox: tuple[int, int, int, int],
         output_path: str = "temp/lens_input.jpg",
         long_edge: int = 1024,
         jpeg_quality: int = 95,
@@ -560,8 +578,10 @@ class FaceEngine:
         target = int(min(ih, iw) * context_ratio)
         cur = max(w, h)
         pad = max(0, (target - cur) // 2)
-        x1 = max(0, x - pad); y1 = max(0, y - pad)
-        x2 = min(iw, x + w + pad); y2 = min(ih, y + h + pad)
+        x1 = max(0, x - pad)
+        y1 = max(0, y - pad)
+        x2 = min(iw, x + w + pad)
+        y2 = min(ih, y + h + pad)
         # NOTE: previously we fell back to the WHOLE image when the padded
         # crop already covered >=95% of the original (i.e. the face bbox is
         # very large). That destroyed Lens matching: a 3.6MB Microsoft press
@@ -585,7 +605,7 @@ class FaceEngine:
     def _write_tight_crop(
         self,
         image_bgr: np.ndarray,
-        bbox: Tuple[int, int, int, int],
+        bbox: tuple[int, int, int, int],
         output_path: str = "temp/lens_input_tight.jpg",
         long_edge: int = 512,
         jpeg_quality: int = 98,
@@ -596,8 +616,10 @@ class FaceEngine:
         x, y, w, h = bbox
         ih, iw = image_bgr.shape[:2]
         pad = int(max(w, h) * pad_ratio)
-        x1 = max(0, x - pad); y1 = max(0, y - pad)
-        x2 = min(iw, x + w + pad); y2 = min(ih, y + h + pad)
+        x1 = max(0, x - pad)
+        y1 = max(0, y - pad)
+        x2 = min(iw, x + w + pad)
+        y2 = min(ih, y + h + pad)
         cropped = image_bgr[y1:y2, x1:x2]
         ch, cw = cropped.shape[:2]
         if max(ch, cw) > long_edge:
@@ -633,7 +655,9 @@ class FaceEngine:
                 return False
             h, w = img.shape[:2]
             if upscale and upscale != 1.0:
-                img = cv2.resize(img, (int(w * upscale), int(h * upscale)), interpolation=cv2.INTER_CUBIC)
+                img = cv2.resize(
+                    img, (int(w * upscale), int(h * upscale)), interpolation=cv2.INTER_CUBIC
+                )
             try:
                 ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
                 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))

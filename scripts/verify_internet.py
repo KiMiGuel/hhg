@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """Phase 1: Verify face detection on random internet face images.
 
 Downloads diverse face images from the internet and runs the full FaceEngine
 pipeline (detect -> crop -> embed -> hash) on each. Also tests non-face images
 as negative controls.
 """
+
 from __future__ import annotations
 
 import json
@@ -43,10 +43,18 @@ def download(url: str, dest: Path) -> bool:
     """Download using curl.exe (built into Windows 11) for reliability."""
     try:
         r = subprocess.run(
-            ["curl.exe", "-L", "-s", "-A",
-             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-             "-o", str(dest), url],
-            capture_output=True, timeout=30,
+            [
+                "curl.exe",
+                "-L",
+                "-s",
+                "-A",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "-o",
+                str(dest),
+                url,
+            ],
+            capture_output=True,
+            timeout=30,
         )
         if r.returncode == 0 and dest.exists() and dest.stat().st_size > 5000:
             return True
@@ -54,8 +62,11 @@ def download(url: str, dest: Path) -> bool:
         pass
     # Fallback: requests
     try:
-        resp = requests.get(url, timeout=30, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        resp = requests.get(
+            url,
+            timeout=30,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        )
         resp.raise_for_status()
         dest.write_bytes(resp.content)
         return len(resp.content) > 5000
@@ -92,11 +103,15 @@ def test_image(path: Path, expect_faces: bool, engine: FaceEngine) -> dict:
             str(path), output_crop_path=str(crop_path), face_index=0
         )
         result["embedding_dim"] = 128
-        result["hash_ok"] = face_hash is not None and face_hash.startswith("0x") and len(face_hash) == 66
+        result["hash_ok"] = (
+            face_hash is not None and face_hash.startswith("0x") and len(face_hash) == 66
+        )
         result["process_confidence"] = round(confidence, 3)
         result["quality_pass"] = quality.get("pass", False)
     except ValueError as e:
-        result["error"] = "no_face_detected" if "No face detected" in str(e) else f"process_image: {e}"
+        result["error"] = (
+            "no_face_detected" if "No face detected" in str(e) else f"process_image: {e}"
+        )
     except Exception as e:
         result["error"] = f"process_image: {e}"
     return result
@@ -119,14 +134,18 @@ def main() -> int:
     for name, url in FACE_URLS:
         dest = out_dir / name
         ok = download(url, dest)
-        print(f"  {name}: {'OK' if ok else 'FAIL'} ({dest.stat().st_size if dest.exists() else 0} bytes)")
+        print(
+            f"  {name}: {'OK' if ok else 'FAIL'} ({dest.stat().st_size if dest.exists() else 0} bytes)"
+        )
         time.sleep(0.5)
 
     print(f"\n--- Downloading {len(NONFACE_URLS)} non-face controls ---")
     for name, url in NONFACE_URLS:
         dest = out_dir / name
         ok = download(url, dest)
-        print(f"  {name}: {'OK' if ok else 'FAIL'} ({dest.stat().st_size if dest.exists() else 0} bytes)")
+        print(
+            f"  {name}: {'OK' if ok else 'FAIL'} ({dest.stat().st_size if dest.exists() else 0} bytes)"
+        )
         time.sleep(0.5)
 
     print("\n--- Testing face images ---")
@@ -135,7 +154,9 @@ def main() -> int:
         results.append(r)
         status = "PASS" if (r["detections"] >= 1 and r["hash_ok"]) else "FAIL"
         err = f" ERR: {r['error']}" if r["error"] and r["error"] != "no_face_detected" else ""
-        print(f"  [{status}] {r['file']}: {r['detections']} faces, conf={r['max_confidence']}, hash_ok={r['hash_ok']}{err}")
+        print(
+            f"  [{status}] {r['file']}: {r['detections']} faces, conf={r['max_confidence']}, hash_ok={r['hash_ok']}{err}"
+        )
 
     print("\n--- Testing non-face controls ---")
     for name, _ in NONFACE_URLS:
@@ -148,14 +169,20 @@ def main() -> int:
     face_results = [r for r in results if r["expect_faces"]]
     nonface_results = [r for r in results if not r["expect_faces"]]
     face_pass = sum(1 for r in face_results if r["detections"] >= 1 and r["hash_ok"])
-    nonface_pass = sum(1 for r in nonface_results if r["detections"] == 0 or r["error"] == "no_face_detected")
+    nonface_pass = sum(
+        1 for r in nonface_results if r["detections"] == 0 or r["error"] == "no_face_detected"
+    )
 
     print(f"\n{'=' * 70}")
     print("SUMMARY")
     print(f"{'=' * 70}")
     print(f"Face images: {face_pass}/{len(face_results)} detected + hashed correctly")
     print(f"Non-face controls: {nonface_pass}/{len(nonface_results)} correctly returned 0 faces")
-    overall = "PASS" if (face_pass >= len(face_results) * 0.8 and nonface_pass == len(nonface_results)) else "FAIL"
+    overall = (
+        "PASS"
+        if (face_pass >= len(face_results) * 0.8 and nonface_pass == len(nonface_results))
+        else "FAIL"
+    )
     print(f"Overall: {overall}")
 
     report_path = ROOT / "reports" / "verify_internet_faces.json"

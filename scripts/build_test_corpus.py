@@ -13,6 +13,7 @@ Usage:
     python scripts/build_test_corpus.py            # full build
     python scripts/build_test_corpus.py --refresh  # force re-download
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.face_engine import FaceEngine  # noqa: E402
+from src.face_engine import FaceEngine
 
 EVAL_DIR = ROOT / "data" / "eval"
 MANIFEST = EVAL_DIR / "manifest.json"
@@ -103,6 +104,7 @@ def _ai_face() -> bytes | None:
         if r.status_code != 200:
             return None
         import re
+
         m = re.search(r'src="(/img/avatar-[^"]+\.jpg)"', r.text)
         if not m:
             return None
@@ -133,21 +135,23 @@ def build(force: bool = False) -> int:
     def _validate_decode(data: bytes):
         import cv2
         import numpy as np
+
         return cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
 
     def _downscale(img, max_dim: int = 1024):
         """Keep repo lean: cap the longest side at max_dim pixels."""
         import cv2
+
         h, w = img.shape[:2]
         longest = max(h, w)
         if longest <= max_dim:
             return img
         scale = max_dim / longest
-        return cv2.resize(img, (int(w * scale), int(h * scale)),
-                          interpolation=cv2.INTER_AREA)
+        return cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
-    def _save_and_validate(idx: int, name: str, kind: str, aliases: list[str],
-                           wiki_title: str, data: bytes | None) -> None:
+    def _save_and_validate(
+        idx: int, name: str, kind: str, aliases: list[str], wiki_title: str, data: bytes | None
+    ) -> None:
         nonlocal ok
         fp = EVAL_DIR / f"eval_{idx:02d}.jpg"
         if data is None:
@@ -163,6 +167,7 @@ def build(force: bool = False) -> int:
             return
         img = _downscale(img)
         import cv2
+
         ok_enc, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
         if not ok_enc:
             fails.append(f"{fp.name}: JPEG encode failed")
@@ -184,8 +189,9 @@ def build(force: bool = False) -> int:
             "wiki_title": wiki_title if kind == "public" else "",
             "face_confidence": round(float(faces[0]["confidence"]), 3),
             "bytes": len(data_out),
-            "source": f"wikipedia:{wiki_title}" if kind == "public"
-                      else "thispersondoesnotexist.com",
+            "source": (
+                f"wikipedia:{wiki_title}" if kind == "public" else "thispersondoesnotexist.com"
+            ),
         }
         ok += 1
         log_progress(f"saved {fp.name} (conf {entries[fp.name]['face_confidence']})")

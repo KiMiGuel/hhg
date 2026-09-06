@@ -6,8 +6,7 @@ import sys
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
-from rich.table import Table
+from rich.prompt import Confirm
 
 console = Console()
 
@@ -45,13 +44,16 @@ def _check_models() -> bool:
 
 def _check_node() -> bool:
     """Verify the blockchain node is reachable."""
-    from src.config import RPC_URL
     from web3 import Web3
+
+    from src.config import RPC_URL
 
     try:
         w3 = Web3(Web3.HTTPProvider(RPC_URL))
         if w3.is_connected():
-            console.print(f"[green]✔[/green] Node reachable: {RPC_URL} (block {w3.eth.block_number})")
+            console.print(
+                f"[green]✔[/green] Node reachable: {RPC_URL} (block {w3.eth.block_number})"
+            )
             return True
         else:
             console.print(f"[red]✖[/red] Node not responding: {RPC_URL}")
@@ -115,9 +117,17 @@ def run_setup():
     console.print()
     all_ok = deps_ok and models_ok and node_ok and contract_ok
     if all_ok:
-        console.print(Panel("[bold green]✔ System ready — all checks passed![/bold green]", border_style="green"))
+        console.print(
+            Panel(
+                "[bold green]✔ System ready — all checks passed![/bold green]", border_style="green"
+            )
+        )
     else:
-        console.print(Panel("[bold yellow]⚠ Some checks failed — see above[/bold yellow]", border_style="yellow"))
+        console.print(
+            Panel(
+                "[bold yellow]⚠ Some checks failed — see above[/bold yellow]", border_style="yellow"
+            )
+        )
 
     # Offer to fix
     if not all_ok and Confirm.ask("\nAttempt automatic fixes?", default=False):
@@ -125,8 +135,13 @@ def run_setup():
             console.print("[dim]Starting local node...[/dim]")
             try:
                 subprocess.Popen(
-                    [os.path.join(os.path.expanduser("~"), ".foundry", "bin", "anvil.exe"),
-                     "--host", "127.0.0.1", "--port", "8545"],
+                    [
+                        os.path.join(os.path.expanduser("~"), ".foundry", "bin", "anvil.exe"),
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "8545",
+                    ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -137,7 +152,9 @@ def run_setup():
         if not contract_ok and node_ok:
             console.print("[dim]Deploying contract...[/dim]")
             try:
-                result = subprocess.run([sys.executable, "scripts/deploy.py"], capture_output=True, text=True)
+                result = subprocess.run(
+                    [sys.executable, "scripts/deploy.py"], capture_output=True, text=True
+                )
                 if result.returncode == 0:
                     console.print("[green]✔[/green] Contract deployed")
                 else:

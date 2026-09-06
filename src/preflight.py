@@ -1,9 +1,8 @@
 """Pre-flight checks before running the pipeline."""
 
 import os
-import sys
-import requests
 
+import requests
 from rich.console import Console
 
 console = Console()
@@ -30,12 +29,15 @@ def check_models():
 
 def check_rpc_connection():
     """Verify the blockchain node is reachable."""
-    from src.config import RPC_URL
     from web3 import Web3
+
+    from src.config import RPC_URL
 
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
     if not w3.is_connected():
-        raise ConnectionError(f"Node not reachable at {RPC_URL} — start with: .\\scripts\\run_local_node.ps1")
+        raise ConnectionError(
+            f"Node not reachable at {RPC_URL} — start with: .\\scripts\\run_local_node.ps1"
+        )
     console.print(f"[green]✔[/green] Node reachable: {RPC_URL} (block {w3.eth.block_number})")
     return w3
 
@@ -48,7 +50,9 @@ def check_contract_deployed(w3):
         raise RuntimeError("CONTRACT_ADDRESS not set — run: python scripts/deploy.py")
     code = w3.eth.get_code(CONTRACT_ADDRESS)
     if len(code) == 0:
-        raise RuntimeError(f"No contract code at {CONTRACT_ADDRESS} — run: python scripts/deploy.py")
+        raise RuntimeError(
+            f"No contract code at {CONTRACT_ADDRESS} — run: python scripts/deploy.py"
+        )
     console.print(f"[green]✔[/green] Contract deployed: {CONTRACT_ADDRESS[:12]}…")
 
 
@@ -83,7 +87,9 @@ def check_image_hosts():
                 return
         except Exception:
             continue
-    raise RuntimeError("No image host reachable (catbox.moe/tmpfiles.org). Check internet/firewall.")
+    raise RuntimeError(
+        "No image host reachable (catbox.moe/tmpfiles.org). Check internet/firewall."
+    )
 
 
 def run_preflight(input_image_path: str, require_serpapi: bool = True):

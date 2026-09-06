@@ -1,4 +1,5 @@
 """Auto-generated audit artifacts for every pipeline run."""
+
 import json
 import os
 from datetime import datetime, timezone

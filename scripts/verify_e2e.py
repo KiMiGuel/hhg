@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """Phase 3: Full pipeline E2E on random internet face images.
 
 Runs ``main.py live`` (the real production path: face detection -> SerpApi
 Google Lens -> blockchain anchoring -> on-chain tamper-evidence verification)
 on 3 internet-sourced images and validates every stage of the audit report.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,14 +65,18 @@ def validate_report(report: dict | None, name: str) -> tuple[bool, list[str]]:
     stage2 = report.get("stage2") or {}
     selected = stage2.get("selected") or {}
     title = str(selected.get("title", ""))
-    abstained = (title == "No confident identification" or not title)
+    abstained = title == "No confident identification" or not title
     if abstained:
         # Clean abstain: no link asserted, no false identity claimed
-        need(not selected.get("link"),
-             f"{name}: abstained but selected.link is set ({selected.get('link')!r})")
+        need(
+            not selected.get("link"),
+            f"{name}: abstained but selected.link is set ({selected.get('link')!r})",
+        )
     else:
-        need(bool(selected.get("link") or stage2.get("post_url")),
-             f"{name}: identity selected ({title!r}) but no link")
+        need(
+            bool(selected.get("link") or stage2.get("post_url")),
+            f"{name}: identity selected ({title!r}) but no link",
+        )
 
     stage3 = report.get("stage3") or {}
     need(not stage3.get("skipped"), f"{name}: stage3 was skipped (no chain)")
@@ -84,19 +88,23 @@ def validate_report(report: dict | None, name: str) -> tuple[bool, list[str]]:
     need(not stage4.get("skipped"), f"{name}: stage4 was skipped (no chain)")
     verification = str(stage4.get("verification", "")).upper()
     # pipeline.py sets verification="PASSED" when on-chain fingerprint matches
-    need(verification == "PASSED",
-         f"{name}: stage4 verification={verification!r} (expected PASSED)")
+    need(
+        verification == "PASSED", f"{name}: stage4 verification={verification!r} (expected PASSED)"
+    )
     # tamper_detected=True is GOOD: the drill mutates the URL by 1 char and
     # the on-chain fingerprint mismatch proves tamper-evidence works.
-    need(stage4.get("tamper_detected") is True,
-         f"{name}: stage4 tamper drill did NOT detect tampering "
-         f"(tamper_detected={stage4.get('tamper_detected')!r})")
-    need(bool(stage4.get("tamper_on_chain_hash")),
-         f"{name}: stage4 missing tamper_on_chain_hash")
+    need(
+        stage4.get("tamper_detected") is True,
+        f"{name}: stage4 tamper drill did NOT detect tampering "
+        f"(tamper_detected={stage4.get('tamper_detected')!r})",
+    )
+    need(bool(stage4.get("tamper_on_chain_hash")), f"{name}: stage4 missing tamper_on_chain_hash")
 
     network = report.get("network") or {}
-    need(str(network.get("chain_id")) == "31337",
-         f"{name}: network.chain_id={network.get('chain_id')!r} (expected 31337)")
+    need(
+        str(network.get("chain_id")) == "31337",
+        f"{name}: network.chain_id={network.get('chain_id')!r} (expected 31337)",
+    )
 
     return not problems, problems
 
@@ -104,14 +112,27 @@ def validate_report(report: dict | None, name: str) -> tuple[bool, list[str]]:
 def run_e2e(image: str, fresh_chain: bool) -> tuple[bool, list[str], dict | None, str]:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     before = {p.name for p in REPORTS_DIR.glob("report_*.json")}
-    cmd = [sys.executable, str(ROOT / "main.py"), "live",
-           "--image", str(ROOT / "data" / "internet_test" / image),
-           "--face", "0"]
+    cmd = [
+        sys.executable,
+        str(ROOT / "main.py"),
+        "live",
+        "--image",
+        str(ROOT / "data" / "internet_test" / image),
+        "--face",
+        "0",
+    ]
     if fresh_chain:
         cmd.append("--fresh-chain")
     try:
-        r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True,
-                           timeout=420, encoding="utf-8", errors="replace")
+        r = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=420,
+            encoding="utf-8",
+            errors="replace",
+        )
     except subprocess.TimeoutExpired:
         return False, ["pipeline timed out after 420s"], None, ""
     tail = "\n".join((r.stdout or "").strip().splitlines()[-12:])
@@ -130,9 +151,11 @@ def main() -> int:
     all_ok = True
     results = []
     for i, image in enumerate(E2E_IMAGES):
-        fresh = (i == 0)  # first run restarts Anvil + redeploys the contract
-        print(f"\n[{i + 1}/{len(E2E_IMAGES)}] {image} "
-              f"({'fresh chain + deploy' if fresh else 'reuse running node'})")
+        fresh = i == 0  # first run restarts Anvil + redeploys the contract
+        print(
+            f"\n[{i + 1}/{len(E2E_IMAGES)}] {image} "
+            f"({'fresh chain + deploy' if fresh else 'reuse running node'})"
+        )
         ok, problems, report, tail = run_e2e(image, fresh_chain=fresh)
         results.append({"image": image, "ok": ok, "problems": problems})
         if ok:
@@ -140,14 +163,19 @@ def main() -> int:
             sel = s2.get("selected") or {}
             s3 = (report or {}).get("stage3") or {}
             s4 = (report or {}).get("stage4") or {}
-            outcome = "ABSTAINED" if str(sel.get("title", "")) in (
-                "No confident identification", "") else f"ID={sel.get('title', '?')[:40]!r}"
-            print(f"  PASS  [{outcome}]  tx={s3.get('tx_hash', '?')[:20]}... "
-                  f"block={s3.get('block')} gas={s3.get('gas_used')} "
-                  f"verification={s4.get('verification')}")
+            outcome = (
+                "ABSTAINED"
+                if str(sel.get("title", "")) in ("No confident identification", "")
+                else f"ID={sel.get('title', '?')[:40]!r}"
+            )
+            print(
+                f"  PASS  [{outcome}]  tx={s3.get('tx_hash', '?')[:20]}... "
+                f"block={s3.get('block')} gas={s3.get('gas_used')} "
+                f"verification={s4.get('verification')}"
+            )
         else:
             all_ok = False
-            print(f"  FAIL")
+            print("  FAIL")
             for p in problems:
                 print(f"    - {p}")
             if tail.strip():

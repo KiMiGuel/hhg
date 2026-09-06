@@ -44,11 +44,14 @@ def main():
     sample_img = os.environ.get("HHG_SAMPLE_IMAGE", "data/sample_face.jpg")
     if not os.path.exists(sample_img):
         console.print("[red]Sample image missing: " + sample_img + "[/red]")
-        console.print("[dim]  Set HHG_SAMPLE_IMAGE=<path> or download a face image to data/sample_face.jpg[/dim]")
+        console.print(
+            "[dim]  Set HHG_SAMPLE_IMAGE=<path> or download a face image to data/sample_face.jpg[/dim]"
+        )
         sys.exit(1)
 
     # Check node
     from web3 import Web3
+
     from src.config import RPC_URL
 
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
@@ -63,6 +66,7 @@ def main():
     if not CONTRACT_ADDRESS:
         console.print("[yellow]Contract not deployed - deploying now...[/yellow]")
         from scripts.deploy import deploy
+
         deploy()
 
     console.print("\n[bold green]All prerequisites met - starting pipeline...[/bold green]\n")

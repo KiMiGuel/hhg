@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Biometric re-verification of the selected identity.
 
 After the text-based selection (Lens voting) picks a candidate, this module
@@ -10,6 +9,7 @@ selection into actual face verification.
 All network helpers degrade gracefully: any failure means "unknown", never a
 false verdict.
 """
+
 from __future__ import annotations
 
 import re
@@ -28,10 +28,12 @@ _UA = {
 }
 
 _OG_IMAGE_PATTERNS = [
-    re.compile(r"<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']",
-               re.IGNORECASE),
-    re.compile(r"<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']og:image[\"']",
-               re.IGNORECASE),
+    re.compile(
+        r"<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']", re.IGNORECASE
+    ),
+    re.compile(
+        r"<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']og:image[\"']", re.IGNORECASE
+    ),
 ]
 
 # Cosine bands for the biometric verdict. SFace's reference threshold is
@@ -46,9 +48,10 @@ def fetch_image(url: str, timeout: int = 15) -> bytes | None:
         return None
     try:
         r = requests.get(url, timeout=timeout, headers=_UA, allow_redirects=True)
-        is_img = (r.status_code == 200 and
-                  ("image" in r.headers.get("content-type", "") or
-                   r.content[:3] in (b"\xff\xd8\xff", b"\x89PNG")))
+        is_img = r.status_code == 200 and (
+            "image" in r.headers.get("content-type", "")
+            or r.content[:3] in (b"\xff\xd8\xff", b"\x89PNG")
+        )
         return r.content if is_img else None
     except Exception:
         return None
@@ -59,8 +62,7 @@ def _og_image(url: str, timeout: int = 10) -> str | None:
     if not url:
         return None
     try:
-        r = requests.get(url, timeout=timeout, headers=_UA, allow_redirects=True,
-                         stream=False)
+        r = requests.get(url, timeout=timeout, headers=_UA, allow_redirects=True, stream=False)
         if r.status_code != 200:
             return None
         head = r.text[:250_000]
@@ -87,14 +89,14 @@ def _wikipedia_photo(link: str) -> str | None:
         if r.status_code != 200:
             return None
         j = r.json()
-        return ((j.get("originalimage") or {}).get("source") or
-                (j.get("thumbnail") or {}).get("source"))
+        return (j.get("originalimage") or {}).get("source") or (j.get("thumbnail") or {}).get(
+            "source"
+        )
     except Exception:
         return None
 
 
-def candidate_photo_urls(selected_link: str,
-                         platform_profiles: dict | None = None) -> list[str]:
+def candidate_photo_urls(selected_link: str, platform_profiles: dict | None = None) -> list[str]:
     """Ordered list of candidate photo URLs for biometric verification.
 
     Priority: Wikipedia portrait (most reliable, no scraping blocks) ->
@@ -145,8 +147,12 @@ class BiometricVerifier:
         Photos are fetched in parallel so wall time ~= single fetch rather
         than sum of fetches, while still respecting MAX_PHOTOS.
         """
-        result = {"biometric_confidence": "UNKNOWN", "similarity": None,
-                  "photo_url": None, "checked": 0}
+        result = {
+            "biometric_confidence": "UNKNOWN",
+            "similarity": None,
+            "photo_url": None,
+            "checked": 0,
+        }
         if query_embedding is None:
             return result
         q = np.asarray(query_embedding, dtype=np.float32).flatten()
@@ -156,6 +162,7 @@ class BiometricVerifier:
 
         # ---- parallel fetch + embed ----
         from concurrent.futures import ThreadPoolExecutor
+
         def _check(url: str) -> tuple[str, float | None]:
             data = fetch_image(url)
             if not data:

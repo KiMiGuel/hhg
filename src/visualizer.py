@@ -2,7 +2,6 @@
 
 import os
 
-from rich.align import Align
 from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
@@ -67,7 +66,9 @@ def render_comparison_panel(crop_path: str, match_data: dict) -> Panel:
         f"[dim]{match_data.get('link', '')[:50]}[/dim]"
     )
     cols = Columns([left, right], expand=True, equal=True)
-    return Panel(cols, title="[bold]Stage 2: Face → Web Match[/bold]", border_style="green", padding=(1, 2))
+    return Panel(
+        cols, title="[bold]Stage 2: Face → Web Match[/bold]", border_style="green", padding=(1, 2)
+    )
 
 
 def render_blockchain_panel(tx_hash: str, block: int, gas: int) -> Panel:
@@ -78,7 +79,12 @@ def render_blockchain_panel(tx_hash: str, block: int, gas: int) -> Panel:
         f"[bold]Gas Used:[/bold]         {gas:,}\n"
         f"[bold]Status:[/bold]           [green]✔ Confirmed[/green]"
     )
-    return Panel(body, title="[bold]Stage 3: Blockchain Anchor[/bold]", border_style="magenta", padding=(1, 2))
+    return Panel(
+        body,
+        title="[bold]Stage 3: Blockchain Anchor[/bold]",
+        border_style="magenta",
+        padding=(1, 2),
+    )
 
 
 def render_verification_panel(valid: bool, on_chain_hash: str, local_hash: str) -> Panel:
@@ -95,7 +101,9 @@ def render_verification_panel(valid: bool, on_chain_hash: str, local_hash: str) 
         f"[dim]On-Chain Fingerprint:[/dim]\n[cyan]{on_chain_hash}[/cyan]\n\n"
         f"[dim]Local Recomputed:[/dim]\n[cyan]{local_hash}[/cyan]"
     )
-    return Panel(body, title="[bold]Stage 4: Verification[/bold]", border_style=border, padding=(1, 2))
+    return Panel(
+        body, title="[bold]Stage 4: Verification[/bold]", border_style=border, padding=(1, 2)
+    )
 
 
 def show_face_detection(input_image_path: str, bbox: tuple, auto_close_ms: int = 2000):
@@ -108,12 +116,15 @@ def show_face_detection(input_image_path: str, bbox: tuple, auto_close_ms: int =
             return
         x, y, w, h = bbox
         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(img, "Face Detected", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(
+            img, "Face Detected", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
+        )
         cv2.imshow("Face Detection", img)
         cv2.waitKey(auto_close_ms)
         cv2.destroyAllWindows()
     except Exception as e:
         console.print(f"[dim]Could not display OpenCV window: {e}[/dim]")
+
 
 # ---------------------------------------------------------------- identity
 def _person_name_from_lens(lens_result):
@@ -125,29 +136,29 @@ def _person_name_from_lens(lens_result):
               4) empty string.
     """
     import re as _re
-    from urllib.parse import urlparse, unquote
+    from urllib.parse import unquote, urlparse
 
     def _is_real_name(s):
         if not s:
             return False
         low = s.lower()
-        if 'wikipedia' in low and ('encyclopedia' in low or 'the free' in low):
+        if "wikipedia" in low and ("encyclopedia" in low or "the free" in low):
             return False
         return sum(1 for p in s.split() if p[:1].isupper()) >= 2
 
     try:
-        kg = getattr(lens_result, 'knowledge_graph', None)
+        kg = getattr(lens_result, "knowledge_graph", None)
         if kg is not None:
-            t = (getattr(kg, 'title', None) or '').strip()
+            t = (getattr(kg, "title", None) or "").strip()
             if _is_real_name(t):
                 return t
     except Exception:
         pass
     try:
-        sel = getattr(lens_result, 'selected', None)
+        sel = getattr(lens_result, "selected", None)
         if sel is None:
-            return ''
-        for raw in (getattr(sel, 'title', None), getattr(sel, 'link', None)):
+            return ""
+        for raw in (getattr(sel, "title", None), getattr(sel, "link", None)):
             if not raw:
                 continue
             rs = str(raw)
@@ -156,125 +167,280 @@ def _person_name_from_lens(lens_result):
                 # Reject headline-style ALL-CAPS phrases ('MUSK'S BLACK EYE')
                 # so the displayed name is the actual person, not a news topic.
                 return m.group(1)
-            if '/wiki/' in rs:
+            if "/wiki/" in rs:
                 try:
-                    tail = unquote(urlparse(rs).path).rsplit('/', 1)[-1].replace('_', ' ')
-                    npp = [pp for pp in tail.split() if pp and pp[:1].isupper() and pp[1:].islower()]
+                    tail = unquote(urlparse(rs).path).rsplit("/", 1)[-1].replace("_", " ")
+                    npp = [
+                        pp for pp in tail.split() if pp and pp[:1].isupper() and pp[1:].islower()
+                    ]
                     if 2 <= len(npp) <= 4:
-                        return ' '.join(npp)
+                        return " ".join(npp)
                 except Exception:
                     pass
     except Exception:
         pass
-    return ''
+    return ""
+
 
 def _truncate(s, n):
-    s = str(s) if s is not None else ''
+    s = str(s) if s is not None else ""
     return s if len(s) <= n else s[: n - 1] + chr(0x2026)
 
+
 def _truncate_url(url, n=70):
-    if not url: return '(no URL)'
-    if len(url) <= n: return url
-    h = n // 2 - 1; t = n // 2 + 1
+    if not url:
+        return "(no URL)"
+    if len(url) <= n:
+        return url
+    h = n // 2 - 1
+    t = n // 2 + 1
     return url[:h] + chr(0x2026) + url[-t:]
 
-def render_identity_block(lens_result, face_hash=None):
-    sel = getattr(lens_result, 'selected', None)
-    title = getattr(sel, 'title', 'Unknown') if sel else 'Unknown'
-    platform = getattr(sel, 'platform', 'web') if sel else 'web'
-    link = getattr(sel, 'link', '') if sel else ''
-    reason = getattr(sel, 'reason', '') if sel else ''
-    person = _person_name_from_lens(lens_result)
-    cache_state = 'HIT' if getattr(lens_result, 'cache_hit', False) else 'MISS'
-    serpapi_total = getattr(lens_result, 'serpapi_total_time_s', None) or 0.0
-    visual_count = getattr(lens_result, 'visual_match_count', 0)
-    upload_ms = getattr(lens_result, 'upload_ms', 0.0) or 0.0
-    lens_ms = getattr(lens_result, 'lens_ms', 0.0) or 0.0
-    platform_color = {
-        'youtube.com': 'red', 'instagram.com': 'magenta', 'x.com': 'white',
-        'twitter.com': 'white', 'linkedin.com': 'blue', 'facebook.com': 'blue',
-        'reddit.com': 'red', 'official': 'green', 'news': 'yellow',
-    }.get(platform, 'cyan')
-    identity_line = '[bold magenta]' + person + '[/bold magenta]' if person else '[bold yellow]' + title + '[/bold yellow]'
-    body = Text()
-    body.append(chr(0x250C) + chr(0x2500) + ' ', style='bold green')
-    body.append('IDENTITY', style='bold white on green')
-    body.append(' ' + chr(0x2500) * 42 + chr(0x2510) + chr(10), style='bold green')
-    body.append('  Person / Entity   : ', style='bold'); body.append(identity_line); body.append(chr(10))
-    body.append('  Matched title     : ', style='bold'); body.append(_truncate(title, 70)); body.append(chr(10))
-    body.append('  Platform          : ', style='bold'); body.append('[' + platform_color + ']' + platform + '[/' + platform_color + ']'); body.append(chr(10))
-    body.append('  Source URL        : ', style='bold'); body.append('[link=' + link + ']' + _truncate_url(link, 80) + '[/link]'); body.append(chr(10))
-    if reason: body.append('  Selection reason  : ', style='bold'); body.append('[dim]' + reason + '[/dim]'); body.append(chr(10))
-    body.append(chr(0x2514) + chr(0x2500) * 53 + chr(0x2518) + chr(10), style='bold green')
-    stats = Table.grid(padding=(0, 2))
-    stats.add_column(style='dim'); stats.add_column()
-    stats.add_row('Lens candidates', '[bold]' + str(visual_count) + '[/bold]')
-    stats.add_row('SerpApi total', '{:.2f}s'.format(serpapi_total))
-    stats.add_row('Upload + Lens', '{:.0f}ms + {:.0f}ms'.format(upload_ms, lens_ms))
-    stats.add_row('Cache', '[green]HIT[/]' if cache_state == 'HIT' else '[yellow]MISS[/]')
-    if face_hash: stats.add_row('Face hash', '[dim]' + _truncate(face_hash, 22) + '[/dim]')
-    grid = Table.grid(expand=True, padding=(0, 1))
-    grid.add_column(); grid.add_column()
-    grid.add_row(Panel(body, border_style='green', padding=(0, 1), expand=False), Panel(stats, title='[bold]Stage 2 stats[/bold]', border_style='cyan', padding=(0, 1)))
-    return Panel(grid, title='[bold white on green] ' + chr(0x2605) + '  IDENTITY MATCH  ' + chr(0x2605) + ' [/bold white on green]', border_style='bright_green', padding=(0, 1))
 
-def render_final_summary(lens_result, face_hash, on_chain_fingerprint, tx_hash, block, gas, verification_passed, tamper_detected, tamper_local_hash, tamper_on_chain_hash, total_seconds):
-    sel = getattr(lens_result, 'selected', None)
-    title = getattr(sel, 'title', 'Unknown') if sel else 'Unknown'
-    platform = getattr(sel, 'platform', 'web') if sel else 'web'
-    link = getattr(sel, 'link', '') if sel else ''
+def render_identity_block(lens_result, face_hash=None):
+    sel = getattr(lens_result, "selected", None)
+    title = getattr(sel, "title", "Unknown") if sel else "Unknown"
+    platform = getattr(sel, "platform", "web") if sel else "web"
+    link = getattr(sel, "link", "") if sel else ""
+    reason = getattr(sel, "reason", "") if sel else ""
+    person = _person_name_from_lens(lens_result)
+    cache_state = "HIT" if getattr(lens_result, "cache_hit", False) else "MISS"
+    serpapi_total = getattr(lens_result, "serpapi_total_time_s", None) or 0.0
+    visual_count = getattr(lens_result, "visual_match_count", 0)
+    upload_ms = getattr(lens_result, "upload_ms", 0.0) or 0.0
+    lens_ms = getattr(lens_result, "lens_ms", 0.0) or 0.0
+    platform_color = {
+        "youtube.com": "red",
+        "instagram.com": "magenta",
+        "x.com": "white",
+        "twitter.com": "white",
+        "linkedin.com": "blue",
+        "facebook.com": "blue",
+        "reddit.com": "red",
+        "official": "green",
+        "news": "yellow",
+    }.get(platform, "cyan")
+    identity_line = (
+        "[bold magenta]" + person + "[/bold magenta]"
+        if person
+        else "[bold yellow]" + title + "[/bold yellow]"
+    )
+    body = Text()
+    body.append(chr(0x250C) + chr(0x2500) + " ", style="bold green")
+    body.append("IDENTITY", style="bold white on green")
+    body.append(" " + chr(0x2500) * 42 + chr(0x2510) + chr(10), style="bold green")
+    body.append("  Person / Entity   : ", style="bold")
+    body.append(identity_line)
+    body.append(chr(10))
+    body.append("  Matched title     : ", style="bold")
+    body.append(_truncate(title, 70))
+    body.append(chr(10))
+    body.append("  Platform          : ", style="bold")
+    body.append("[" + platform_color + "]" + platform + "[/" + platform_color + "]")
+    body.append(chr(10))
+    body.append("  Source URL        : ", style="bold")
+    body.append("[link=" + link + "]" + _truncate_url(link, 80) + "[/link]")
+    body.append(chr(10))
+    if reason:
+        body.append("  Selection reason  : ", style="bold")
+        body.append("[dim]" + reason + "[/dim]")
+        body.append(chr(10))
+    body.append(chr(0x2514) + chr(0x2500) * 53 + chr(0x2518) + chr(10), style="bold green")
+    stats = Table.grid(padding=(0, 2))
+    stats.add_column(style="dim")
+    stats.add_column()
+    stats.add_row("Lens candidates", "[bold]" + str(visual_count) + "[/bold]")
+    stats.add_row("SerpApi total", f"{serpapi_total:.2f}s")
+    stats.add_row("Upload + Lens", f"{upload_ms:.0f}ms + {lens_ms:.0f}ms")
+    stats.add_row("Cache", "[green]HIT[/]" if cache_state == "HIT" else "[yellow]MISS[/]")
+    if face_hash:
+        stats.add_row("Face hash", "[dim]" + _truncate(face_hash, 22) + "[/dim]")
+    grid = Table.grid(expand=True, padding=(0, 1))
+    grid.add_column()
+    grid.add_column()
+    grid.add_row(
+        Panel(body, border_style="green", padding=(0, 1), expand=False),
+        Panel(stats, title="[bold]Stage 2 stats[/bold]", border_style="cyan", padding=(0, 1)),
+    )
+    return Panel(
+        grid,
+        title="[bold white on green] "
+        + chr(0x2605)
+        + "  IDENTITY MATCH  "
+        + chr(0x2605)
+        + " [/bold white on green]",
+        border_style="bright_green",
+        padding=(0, 1),
+    )
+
+
+def render_final_summary(
+    lens_result,
+    face_hash,
+    on_chain_fingerprint,
+    tx_hash,
+    block,
+    gas,
+    verification_passed,
+    tamper_detected,
+    tamper_local_hash,
+    tamper_on_chain_hash,
+    total_seconds,
+):
+    sel = getattr(lens_result, "selected", None)
+    title = getattr(sel, "title", "Unknown") if sel else "Unknown"
+    platform = getattr(sel, "platform", "web") if sel else "web"
+    link = getattr(sel, "link", "") if sel else ""
     person = _person_name_from_lens(lens_result)
     # Compute a simple confidence badge so the user knows how much to trust
     # the displayed identity. HIGH = Lens gave us a real anchor (KG or
     # consensus). LOW = the name is our best guess from unrelated matches.
     # ABSTAIN = the pipeline declined to name anyone.
-    is_abstain = platform == 'abstain' or (title or '').startswith('No confident')
-    has_kg = getattr(lens_result, 'knowledge_graph', None) is not None
-    sel_reason = getattr(sel, 'reason', '') if sel else ''
-    has_consensus = 'consensus=yes' in (sel_reason or '')
+    is_abstain = platform == "abstain" or (title or "").startswith("No confident")
+    has_kg = getattr(lens_result, "knowledge_graph", None) is not None
+    sel_reason = getattr(sel, "reason", "") if sel else ""
+    has_consensus = "consensus=yes" in (sel_reason or "")
     if is_abstain:
-        confidence = 'ABSTAIN'
-        conf_color = 'yellow'
-        conf_note = 'no high-confidence match found in Lens results'
+        confidence = "ABSTAIN"
+        conf_color = "yellow"
+        conf_note = "no high-confidence match found in Lens results"
     elif has_kg or has_consensus:
-        confidence = 'HIGH'
-        conf_color = 'green'
-        conf_note = 'Lens Knowledge Graph' if has_kg else 'multi-crop consensus hit'
+        confidence = "HIGH"
+        conf_color = "green"
+        conf_note = "Lens Knowledge Graph" if has_kg else "multi-crop consensus hit"
     else:
-        confidence = 'LOW'
-        conf_color = 'red'
-        conf_note = 'best visual-match guess; Lens returned no actual matches for this face'
-    if not verification_passed: border = 'red'; status_color = 'red'
-    elif tamper_detected: border = 'yellow'; status_color = 'yellow'
-    else: border = 'bright_green'; status_color = 'green'
+        confidence = "LOW"
+        conf_color = "red"
+        conf_note = "best visual-match guess; Lens returned no actual matches for this face"
+    if not verification_passed:
+        border = "red"
+        status_color = "red"
+    elif tamper_detected:
+        border = "yellow"
+        status_color = "yellow"
+    else:
+        border = "bright_green"
+        status_color = "green"
+
     def col(title_, body_text, color):
         t = Text()
-        t.append(chr(0x2554) + chr(0x2550) + chr(0x2550) + ' ', style='bold ' + color)
-        t.append(title_, style='bold ' + color)
-        t.append(chr(0x255A) + chr(0x2550) * 32 + chr(0x255D) + chr(10), style='bold ' + color)
+        t.append(chr(0x2554) + chr(0x2550) + chr(0x2550) + " ", style="bold " + color)
+        t.append(title_, style="bold " + color)
+        t.append(chr(0x255A) + chr(0x2550) * 32 + chr(0x255D) + chr(10), style="bold " + color)
         for ln in body_text.split(chr(10)):
             t.append(ln + chr(10))
         return t
+
     # First line of the identity column is a confidence badge.
-    identity_body = '  Confidence      : [bold ' + conf_color + ']' + confidence + '[/bold ' + conf_color + '] [dim](' + conf_note + ')[/dim]' + chr(10)
+    identity_body = (
+        "  Confidence      : [bold "
+        + conf_color
+        + "]"
+        + confidence
+        + "[/bold "
+        + conf_color
+        + "] [dim]("
+        + conf_note
+        + ")[/dim]"
+        + chr(10)
+    )
     if is_abstain:
-        identity_body += '  Person / Entity : [bold yellow]' + (person or title) + '[/bold yellow] [dim](unverified)[/dim]' + chr(10) + '  Source title    : ' + _truncate(title, 50) + chr(10) + '  Platform        : ' + platform + chr(10) + '  Link            : [dim]no link (abstained)[/dim]' + chr(10)
+        identity_body += (
+            "  Person / Entity : [bold yellow]"
+            + (person or title)
+            + "[/bold yellow] [dim](unverified)[/dim]"
+            + chr(10)
+            + "  Source title    : "
+            + _truncate(title, 50)
+            + chr(10)
+            + "  Platform        : "
+            + platform
+            + chr(10)
+            + "  Link            : [dim]no link (abstained)[/dim]"
+            + chr(10)
+        )
     else:
-        identity_body += '  Person / Entity : [bold magenta]' + (person or title) + '[/bold magenta]' + chr(10) + '  Source title    : ' + _truncate(title, 50) + chr(10) + '  Platform        : ' + platform + chr(10) + '  Link            : [link=' + link + ']' + _truncate_url(link, 60) + '[/link]' + chr(10)
-    mid_body = '  Face hash       : [cyan]' + _truncate(face_hash, 22) + '[/cyan]' + chr(10) + '  On-chain finger : [cyan]' + _truncate(on_chain_fingerprint, 22) + '[/cyan]' + chr(10)
-    if tx_hash: mid_body += '  Tx hash         : [cyan]' + _truncate(tx_hash, 22) + '[/cyan]' + chr(10)
-    if block is not None: mid_body += '  Block / Gas     : ' + str(block) + ' / ' + '{:,}'.format(gas) + chr(10)
-    status_lbl = ('[bold green]' + chr(0x2714) + ' CONFIRMED[/bold green]') if verification_passed else ('[bold red]' + chr(0x2716) + ' FAILED[/bold red]')
-    mid_body += '  Verification    : ' + status_lbl + chr(10)
+        identity_body += (
+            "  Person / Entity : [bold magenta]"
+            + (person or title)
+            + "[/bold magenta]"
+            + chr(10)
+            + "  Source title    : "
+            + _truncate(title, 50)
+            + chr(10)
+            + "  Platform        : "
+            + platform
+            + chr(10)
+            + "  Link            : [link="
+            + link
+            + "]"
+            + _truncate_url(link, 60)
+            + "[/link]"
+            + chr(10)
+        )
+    mid_body = (
+        "  Face hash       : [cyan]"
+        + _truncate(face_hash, 22)
+        + "[/cyan]"
+        + chr(10)
+        + "  On-chain finger : [cyan]"
+        + _truncate(on_chain_fingerprint, 22)
+        + "[/cyan]"
+        + chr(10)
+    )
+    if tx_hash:
+        mid_body += "  Tx hash         : [cyan]" + _truncate(tx_hash, 22) + "[/cyan]" + chr(10)
+    if block is not None:
+        mid_body += "  Block / Gas     : " + str(block) + " / " + f"{gas:,}" + chr(10)
+    status_lbl = (
+        ("[bold green]" + chr(0x2714) + " CONFIRMED[/bold green]")
+        if verification_passed
+        else ("[bold red]" + chr(0x2716) + " FAILED[/bold red]")
+    )
+    mid_body += "  Verification    : " + status_lbl + chr(10)
     if tamper_detected:
-        right_body = '  Altered URL  : [dim]' + _truncate(link + '_tampered', 50) + '[/dim]' + chr(10) + '  Local hash   : [red]' + _truncate(tamper_local_hash or '', 22) + '[/red]' + chr(10) + '  On-chain     : [green]' + _truncate(tamper_on_chain_hash or '', 22) + '[/green]' + chr(10) + '  ' + chr(0x21D2) + ' MISMATCH detected (expected)'
+        right_body = (
+            "  Altered URL  : [dim]"
+            + _truncate(link + "_tampered", 50)
+            + "[/dim]"
+            + chr(10)
+            + "  Local hash   : [red]"
+            + _truncate(tamper_local_hash or "", 22)
+            + "[/red]"
+            + chr(10)
+            + "  On-chain     : [green]"
+            + _truncate(tamper_on_chain_hash or "", 22)
+            + "[/green]"
+            + chr(10)
+            + "  "
+            + chr(0x21D2)
+            + " MISMATCH detected (expected)"
+        )
     else:
-        right_body = '  [dim]Skipped (verification failed)[/dim]'
-    col_left  = col('IDENTITY  (Google Lens)',           identity_body, status_color)
-    col_mid   = col('ANCHOR  (Anvil chain 31337)',       mid_body,       'magenta')
-    col_right = col('TAMPER-EVIDENCE  (security drill)', right_body,     status_color)
+        right_body = "  [dim]Skipped (verification failed)[/dim]"
+    col_left = col("IDENTITY  (Google Lens)", identity_body, status_color)
+    col_mid = col("ANCHOR  (Anvil chain 31337)", mid_body, "magenta")
+    col_right = col("TAMPER-EVIDENCE  (security drill)", right_body, status_color)
     grid = Table.grid(expand=True, padding=(0, 1))
-    grid.add_column(ratio=1); grid.add_column(ratio=1); grid.add_column(ratio=1)
+    grid.add_column(ratio=1)
+    grid.add_column(ratio=1)
+    grid.add_column(ratio=1)
     grid.add_row(col_left, col_mid, col_right)
-    footer = '[dim]Total wall time:[/dim] [bold]' + '{:.2f}s'.format(total_seconds) + '[/bold]   [dim]' + chr(0x00B7) + '[/dim]   [dim]Audit report:[/dim] [bold]reports/report_*.json[/bold]'
-    return Panel(grid, title='[bold white on bright_green] ' + chr(0x2605) + '  PIPELINE RESULT  ' + chr(0x2605) + ' [/bold white on bright_green]', subtitle=footer, border_style=border, padding=(1, 2))
+    footer = (
+        "[dim]Total wall time:[/dim] [bold]"
+        + f"{total_seconds:.2f}s"
+        + "[/bold]   [dim]"
+        + chr(0x00B7)
+        + "[/dim]   [dim]Audit report:[/dim] [bold]reports/report_*.json[/bold]"
+    )
+    return Panel(
+        grid,
+        title="[bold white on bright_green] "
+        + chr(0x2605)
+        + "  PIPELINE RESULT  "
+        + chr(0x2605)
+        + " [/bold white on bright_green]",
+        subtitle=footer,
+        border_style=border,
+        padding=(1, 2),
+    )

@@ -16,9 +16,9 @@ multi-crop consensus run before it could try the second crop. Now:
 These tests pin both behaviors with a mocked ``_request_serpapi_engine`` (called per cascade engine) so
 they don't depend on SerpApi being up.
 """
+
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -29,7 +29,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.web_search import LensMatch, LensResult, WebSearchEngine
+from src.web_search import LensResult, WebSearchEngine
 
 
 @pytest.fixture
@@ -113,8 +113,10 @@ def test_search_with_consensus_falls_back_when_first_crop_empty(tmp_cache):
             return _empty_serp_response()
         return _populated_serp_response()
 
-    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request), \
-         patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"),
+    ):
         url, result, *_ = eng.search_with_consensus(
             enhanced_bytes=b"enhanced-bytes",
             tight_bytes=b"tight-bytes",
@@ -127,8 +129,10 @@ def test_search_with_consensus_falls_back_when_first_crop_empty(tmp_cache):
 def test_search_with_consensus_returns_empty_when_both_crops_empty(tmp_cache):
     """Both crops = 0 matches -> return empty result (no crash)."""
     eng = _engine(tmp_cache)
-    with patch.object(eng, "_request_serpapi_engine", return_value=_empty_serp_response()), \
-         patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", return_value=_empty_serp_response()),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"),
+    ):
         url, result, *_ = eng.search_with_consensus(
             enhanced_bytes=b"e", tight_bytes=b"t", face_hash="face-empty"
         )
@@ -168,9 +172,12 @@ if __name__ == "__main__":
 # when the cached entry is an *empty* result (no_visual_matches). For positive
 # matches, the caller must hit the exact (face_hash, image_sha256) cache key.
 
+
 def _seed_cache_with_positive_match(tmp_cache, face_hash):
     """Write a fake cache file that says face_hash was identified as Satya."""
-    import json, hashlib
+    import hashlib
+    import json
+
     key = hashlib.sha256(f"match:{face_hash}".encode()).hexdigest()[:24]
     payload = {
         "query_image_url": "https://catbox.moe/old.jpg",
@@ -208,13 +215,16 @@ def _seed_cache_with_positive_match(tmp_cache, face_hash):
         "raw_response_at": "2026-01-01T00:00:00Z",
     }
     import pathlib
+
     p = pathlib.Path(tmp_cache) / f"{key}.json"
     p.write_text(json.dumps(payload))
 
 
 def _seed_cache_with_empty_result(tmp_cache, face_hash):
     """Write a fake cache file that says face_hash had no Lens matches."""
-    import json, hashlib
+    import hashlib
+    import json
+
     key = hashlib.sha256(f"empty:{face_hash}".encode()).hexdigest()[:24]
     payload = {
         "query_image_url": "https://catbox.moe/empty.jpg",
@@ -222,7 +232,11 @@ def _seed_cache_with_empty_result(tmp_cache, face_hash):
         "face_hash": face_hash,
         "policy": "social",
         "selected": {
-            "rank": None, "title": "", "link": "", "source": "", "platform": "",
+            "rank": None,
+            "title": "",
+            "link": "",
+            "source": "",
+            "platform": "",
             "reason": "no_visual_matches",
         },
         "visual_matches": [],
@@ -239,6 +253,7 @@ def _seed_cache_with_empty_result(tmp_cache, face_hash):
         "raw_response_at": "2026-01-01T00:00:00Z",
     }
     import pathlib
+
     p = pathlib.Path(tmp_cache) / f"{key}.json"
     p.write_text(json.dumps(payload))
 
@@ -256,7 +271,10 @@ def test_face_hash_cache_does_not_bleed_positive_match(tmp_cache):
         fresh_calls["n"] += 1
         return _empty_serp_response()
 
-    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),          patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/new.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/new.jpg"),
+    ):
         url, result, upload_ms, lens_ms, host = eng.upload_and_search(
             image_bytes=b"NEW-PHOTO-BYTES-DIFFERENT",
             face_hash="face-A",  # SAME face_hash, different image_sha256
@@ -281,7 +299,10 @@ def test_face_hash_cache_reuses_empty_result(tmp_cache):
         fresh_calls["n"] += 1
         return _populated_serp_response()
 
-    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),          patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/new.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/new.jpg"),
+    ):
         url, result, upload_ms, lens_ms, host = eng.upload_and_search(
             image_bytes=b"NEW-PHOTO-BYTES",
             face_hash="face-B",

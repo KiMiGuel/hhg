@@ -3,12 +3,11 @@
 import csv
 import json
 import os
-from datetime import timezone, datetime
+from datetime import datetime, timezone
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 console = Console()
 
@@ -17,9 +16,13 @@ def _parse_record(log_entry) -> dict:
     """Parse a RecordRegistered event log entry into a dict."""
     args = log_entry["args"]
     return {
-        "face_hash": args["faceHash"].hex() if isinstance(args["faceHash"], bytes) else args["faceHash"],
+        "face_hash": (
+            args["faceHash"].hex() if isinstance(args["faceHash"], bytes) else args["faceHash"]
+        ),
         "post_url": args.get("postUrl", ""),
-        "data_hash": args["dataHash"].hex() if isinstance(args["dataHash"], bytes) else args["dataHash"],
+        "data_hash": (
+            args["dataHash"].hex() if isinstance(args["dataHash"], bytes) else args["dataHash"]
+        ),
         "timestamp": args.get("timestamp", 0),
         "block_number": int(log_entry.get("blockNumber", 0)),
     }
@@ -69,7 +72,16 @@ def render_records_table(records: list[dict]):
         # Extract platform from URL
         url = rec.get("post_url", "")
         platform = ""
-        for domain in ["youtube.com", "twitter.com", "x.com", "instagram.com", "linkedin.com", "facebook.com", "reddit.com", "tiktok.com"]:
+        for domain in [
+            "youtube.com",
+            "twitter.com",
+            "x.com",
+            "instagram.com",
+            "linkedin.com",
+            "facebook.com",
+            "reddit.com",
+            "tiktok.com",
+        ]:
             if domain in url:
                 platform = domain
                 break
@@ -80,7 +92,13 @@ def render_records_table(records: list[dict]):
         if len(hash_display) > 18:
             hash_display = hash_display[:10] + "…" + hash_display[-6:]
 
-        table.add_row(str(i), hash_display, f"{platform}\n[dim]{url[:40]}[/dim]", str(rec.get("block_number", "")), ts_str)
+        table.add_row(
+            str(i),
+            hash_display,
+            f"{platform}\n[dim]{url[:40]}[/dim]",
+            str(rec.get("block_number", "")),
+            ts_str,
+        )
 
     console.print(table)
 
@@ -97,7 +115,9 @@ def export_records(records: list[dict], fmt: str = "csv") -> str:
     else:
         path = f"exports/registry_{ts}.csv"
         with open(path, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["face_hash", "post_url", "data_hash", "timestamp", "block_number"])
+            writer = csv.DictWriter(
+                f, fieldnames=["face_hash", "post_url", "data_hash", "timestamp", "block_number"]
+            )
             writer.writeheader()
             for rec in records:
                 writer.writerow(rec)

@@ -29,6 +29,7 @@ Usage:
     python scripts/accuracy_eval.py --ci --live   # CI gate
     python scripts/accuracy_eval.py --json        # machine-readable summary
 """
+
 from __future__ import annotations
 
 import argparse
@@ -128,16 +129,15 @@ def extract_display_name(selected: dict | None, kg: dict | None) -> str:
     # Editorial headlines ('MUSK'S BLACK EYE: Elon Musk appeared ...') don't
     # start with the person's name; scan the whole title for the first
     # Title-Case personal-name phrase instead.
-    for mm in re.finditer(
-        r"(?<![A-Za-z])([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+){1,3})", title
-    ):
+    for mm in re.finditer(r"(?<![A-Za-z])([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+){1,3})", title):
         cand = _clean_name_phrase(mm.group(1))
         if cand:
             return cand
 
-    link = (selected.get("link") or "")
+    link = selected.get("link") or ""
     if "/wiki/" in link:
         from urllib.parse import unquote, urlparse
+
         tail = unquote(urlparse(link).path).rsplit("/", 1)[-1].replace("_", " ")
         words = [p for p in tail.split() if p and p[:1].isupper() and p[1:].islower()]
         if 2 <= len(words) <= 4:
@@ -219,8 +219,9 @@ def is_abstain(selected: dict | None, visual_count: int = 0) -> bool:
     return False
 
 
-def score_result(entry: dict, selected: dict | None, kg: dict | None,
-                 visual_count: int = 0) -> dict:
+def score_result(
+    entry: dict, selected: dict | None, kg: dict | None, visual_count: int = 0
+) -> dict:
     """Score one eval image against its ground-truth manifest entry.
 
     ``entry`` shape: {"name", "aliases", "kind": "public"|"abstain"}.
@@ -236,16 +237,26 @@ def score_result(entry: dict, selected: dict | None, kg: dict | None,
         person_ok = abstain
         name_ok = abstain and not display
         data_ok = abstain and (not selected or not selected.get("link"))
-        reason = ("abstain (correct)" if abstain
-                  else f"false positive claim: {display or '?'}")
-        return {"person_ok": person_ok, "name_ok": name_ok, "data_ok": data_ok,
-                "abstained": abstain, "display": display, "reason": reason}
+        reason = "abstain (correct)" if abstain else f"false positive claim: {display or '?'}"
+        return {
+            "person_ok": person_ok,
+            "name_ok": name_ok,
+            "data_ok": data_ok,
+            "abstained": abstain,
+            "display": display,
+            "reason": reason,
+        }
 
     # public figure
     if abstain or not selected:
-        return {"person_ok": False, "name_ok": False, "data_ok": False,
-                "abstained": True, "display": display,
-                "reason": "abstained on a public figure (should identify)"}
+        return {
+            "person_ok": False,
+            "name_ok": False,
+            "data_ok": False,
+            "abstained": True,
+            "display": display,
+            "reason": "abstained on a public figure (should identify)",
+        }
     person_ok = person_matches(aliases, selected, kg)
     name_ok = name_matches(aliases, display)
     data_ok = data_matches(aliases, selected, kg)
@@ -257,8 +268,14 @@ def score_result(entry: dict, selected: dict | None, kg: dict | None,
         reason = f"right person, weak data -> {selected.get('link', '')[:90]}"
     else:
         reason = "all three axes correct"
-    return {"person_ok": person_ok, "name_ok": name_ok, "data_ok": data_ok,
-            "abstained": abstain, "display": display, "reason": reason}
+    return {
+        "person_ok": person_ok,
+        "name_ok": name_ok,
+        "data_ok": data_ok,
+        "abstained": abstain,
+        "display": display,
+        "reason": reason,
+    }
 
 
 # ------------------------------------------------------------- corpus loading
@@ -337,9 +354,13 @@ def _payload_to_score(d: dict) -> tuple[dict | None, dict | None, int]:
         return sel, _kg_from_payload(d), int(d.get("visual_match_count") or 0)
     # legacy flat shape
     if (d.get("title") or d.get("link")) and isinstance(d.get("title"), str):
-        flat = {"title": d.get("title", ""), "link": d.get("link", ""),
-                "platform": d.get("platform", ""), "source": d.get("source", ""),
-                "reason": d.get("reason", "")}
+        flat = {
+            "title": d.get("title", ""),
+            "link": d.get("link", ""),
+            "platform": d.get("platform", ""),
+            "source": d.get("source", ""),
+            "reason": d.get("reason", ""),
+        }
         return flat, _kg_from_payload(d), int(d.get("visual_match_count") or 0)
     return None, None, int(d.get("visual_match_count") or 0)
 
@@ -358,6 +379,7 @@ def cached_payloads() -> list[tuple[Path, dict]]:
         src_sha = ""
         try:
             import hashlib
+
             src_sha = hashlib.sha256(fp.read_bytes()).hexdigest()
         except OSError:
             pass
@@ -372,7 +394,7 @@ def cached_payloads() -> list[tuple[Path, dict]]:
             im_sha = str(payload.get("image_sha256") or "")
             if not fh or not im_sha:
                 continue
-            key = hashlib.sha256(f"consensus:{src_sha}:{fh}".encode("utf-8")).hexdigest()[:24]
+            key = hashlib.sha256(f"consensus:{src_sha}:{fh}".encode()).hexdigest()[:24]
             if cf.stem == key:
                 found = payload
                 found["cache_key"] = cf.stem
@@ -391,8 +413,9 @@ def cached_payloads() -> list[tuple[Path, dict]]:
                     continue
                 if not (payload.get("visual_matches") or payload.get("selected")):
                     continue
-                candidates.append((int(payload.get("visual_match_count") or 0),
-                                   -cf.stat().st_mtime, cf, payload))
+                candidates.append(
+                    (int(payload.get("visual_match_count") or 0), -cf.stat().st_mtime, cf, payload)
+                )
             if candidates:
                 candidates.sort(key=lambda t: (-t[0], -t[1]))
                 found = candidates[0][3]
@@ -406,11 +429,12 @@ def cached_payloads() -> list[tuple[Path, dict]]:
             # so compare only the base hash.
             def _fh_base(h):
                 return (h or "").split(":")[0].lower()
+
             try:
                 from src.face_engine import FaceEngine
+
                 _engine = FaceEngine()
-                _crop, _fh, _bb, _cf, _q = _engine.process_image(
-                    str(fp), face_index=0)
+                _crop, _fh, _bb, _cf, _q = _engine.process_image(str(fp), face_index=0)
             except Exception:
                 _fh = ""
             if _fh:
@@ -424,8 +448,14 @@ def cached_payloads() -> list[tuple[Path, dict]]:
                         continue
                     if not (payload.get("visual_matches") or payload.get("selected")):
                         continue
-                    fh_candidates.append((int(payload.get("visual_match_count") or 0),
-                                          -cf.stat().st_mtime, cf, payload))
+                    fh_candidates.append(
+                        (
+                            int(payload.get("visual_match_count") or 0),
+                            -cf.stat().st_mtime,
+                            cf,
+                            payload,
+                        )
+                    )
                 if fh_candidates:
                     fh_candidates.sort(key=lambda t: (-t[0], -t[1]))
                     found = fh_candidates[0][3]
@@ -448,8 +478,9 @@ def _report_for(image: Path, before: set[str]) -> dict | None:
         if str(image) == img or image.name in str(img):
             candidates.append((p.stat().st_mtime, p))
     if not candidates:
-        reps = sorted(REPORTS_DIR.glob("report_*.json"),
-                      key=lambda p: p.stat().st_mtime, reverse=True)
+        reps = sorted(
+            REPORTS_DIR.glob("report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+        )
         if reps:
             candidates.append((reps[0].stat().st_mtime, reps[0]))
     if not candidates:
@@ -470,12 +501,27 @@ def run_live_one(image: Path, timeout: int = 480) -> dict | None:
     """
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     before = {p.name for p in REPORTS_DIR.glob("report_*.json")}
-    cmd = [sys.executable, str(ROOT / "main.py"), "live",
-           "--image", str(image), "--no-chain", "--face", "0",
-           "--no-auto-node"]
+    cmd = [
+        sys.executable,
+        str(ROOT / "main.py"),
+        "live",
+        "--image",
+        str(image),
+        "--no-chain",
+        "--face",
+        "0",
+        "--no-auto-node",
+    ]
     try:
-        r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True,
-                           timeout=timeout, encoding="utf-8", errors="replace")
+        r = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
+        )
     except subprocess.TimeoutExpired:
         print(f"    timeout after {timeout}s")
         return None
@@ -502,8 +548,10 @@ def collect_from_live() -> list[dict]:
         rows.append(_make_row(image, entry, stage2) if isinstance(stage2, dict) else None)
         last = rows[-1]
         sel = last.get("selected") or {}
-        print(f"    -> {('PASS' if last['person_ok'] else 'FAIL')}: "
-              f"{sel.get('title', '?')[:70]!r}  ({last['reason']})")
+        print(
+            f"    -> {('PASS' if last['person_ok'] else 'FAIL')}: "
+            f"{sel.get('title', '?')[:70]!r}  ({last['reason']})"
+        )
     return [r for r in rows if r is not None]
 
 
@@ -520,9 +568,15 @@ def collect_from_cache() -> list[dict]:
         if payload is None:
             row = _make_row(image, entry, None)
             row["missing"] = True
-            row.update({"person_ok": False, "name_ok": False, "data_ok": False,
-                        "abstained": False,
-                        "reason": "no cached result (image never processed live)"})
+            row.update(
+                {
+                    "person_ok": False,
+                    "name_ok": False,
+                    "data_ok": False,
+                    "abstained": False,
+                    "reason": "no cached result (image never processed live)",
+                }
+            )
             rows.append(row)
             continue
         stage2 = payload.get("stage2", payload)
@@ -532,7 +586,7 @@ def collect_from_cache() -> list[dict]:
 
 def _make_row(image: Path, entry: dict | None, stage2: dict | None) -> dict:
     entry = entry or {"name": None, "aliases": [], "kind": "abstain"}
-    payload = (stage2 or {})
+    payload = stage2 or {}
     if isinstance(payload, dict):
         selected, kg, visual_count = _payload_to_score(payload)
     else:
@@ -552,9 +606,17 @@ def summarize(rows: list[dict]) -> dict:
     """Aggregate rows into per-axis accuracy over the whole eval corpus."""
     n = len(rows)
     if n == 0:
-        return {"n": 0, "person": 0.0, "name": 0.0, "data": 0.0,
-                "person_correct": 0, "name_correct": 0, "data_correct": 0,
-                "abstain_correct": 0, "abstain_total": 0}
+        return {
+            "n": 0,
+            "person": 0.0,
+            "name": 0.0,
+            "data": 0.0,
+            "person_correct": 0,
+            "name_correct": 0,
+            "data_correct": 0,
+            "abstain_correct": 0,
+            "abstain_total": 0,
+        }
     person_correct = sum(1 for r in rows if r["person_ok"])
     name_correct = sum(1 for r in rows if r["name_ok"])
     data_correct = sum(1 for r in rows if r["data_ok"])
@@ -594,19 +656,26 @@ def print_report(rows: list[dict], summary: dict) -> None:
     print(f"NAME   accuracy: {s['name_correct']}/{s['n']} = {s['name']:.0f}%")
     print(f"DATA   accuracy: {s['data_correct']}/{s['n']} = {s['data']:.0f}%")
     if s["abstain_total"]:
-        print(f"ABSTAIN sanity  : {s['abstain_correct']}/{s['abstain_total']} "
-              f"(AI-private faces correctly refused)")
+        print(
+            f"ABSTAIN sanity  : {s['abstain_correct']}/{s['abstain_total']} "
+            f"(AI-private faces correctly refused)"
+        )
     print("=" * 100)
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description="HHG accuracy evaluator (3 axes)")
-    p.add_argument("--live", action="store_true",
-                   help="run the real pipeline end-to-end instead of cache replay")
-    p.add_argument("--min", type=float, default=85.0,
-                   help="minimum per-axis accuracy %% (default 85)")
-    p.add_argument("--ci", action="store_true",
-                   help="CI mode: machine table + non-zero exit below --min")
+    p.add_argument(
+        "--live",
+        action="store_true",
+        help="run the real pipeline end-to-end instead of cache replay",
+    )
+    p.add_argument(
+        "--min", type=float, default=85.0, help="minimum per-axis accuracy %% (default 85)"
+    )
+    p.add_argument(
+        "--ci", action="store_true", help="CI mode: machine table + non-zero exit below --min"
+    )
     p.add_argument("--json", action="store_true", help="emit JSON summary too")
     args = p.parse_args()
 
@@ -619,15 +688,23 @@ def main() -> int:
     if args.json:
         print("\nJSON:" + json.dumps(summary, indent=2))
 
-    ok = (summary["person"] >= args.min and
-          summary["name"] >= args.min and
-          summary["data"] >= args.min)
+    ok = (
+        summary["person"] >= args.min
+        and summary["name"] >= args.min
+        and summary["data"] >= args.min
+    )
     if ok:
         print(f"\n[GATE] Passed: all axes >= {args.min:.0f}%")
         return 0
-    lows = [axis for axis, v in (
-        ("person", summary["person"]), ("name", summary["name"]),
-        ("data", summary["data"])) if v < args.min]
+    lows = [
+        axis
+        for axis, v in (
+            ("person", summary["person"]),
+            ("name", summary["name"]),
+            ("data", summary["data"]),
+        )
+        if v < args.min
+    ]
     print(f"\n[GATE] Failed (< {args.min:.0f}%): {', '.join(lows)}")
     return 1
 

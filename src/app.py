@@ -18,14 +18,14 @@ import os
 import sys
 import time
 
+from rich.align import Align
+from rich.columns import Columns
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
-from rich.columns import Columns
-from rich.align import Align
-from rich.live import Live
-from rich.spinner import Spinner
 
 from src.menu import pause, select_option
 
@@ -70,13 +70,14 @@ def _recent_activities() -> list[str]:
     """Get recent pipeline run summaries from reports/."""
     import glob
     import json
+
     if not os.path.isdir("reports"):
         return []
     reports = sorted(glob.glob("reports/*.json"), reverse=True)[:5]
     activities = []
     for r in reports:
         try:
-            with open(r, "r", encoding="utf-8") as f:
+            with open(r, encoding="utf-8") as f:
                 data = json.load(f)
             stage4 = data.get("stage4", {})
             status = stage4.get("verification", "unknown")
@@ -91,21 +92,42 @@ def _recent_activities() -> list[str]:
 def _stat_cards() -> "Columns":
     """Build stat cards for the dashboard home screen."""
     from rich.columns import Columns
+
     cards = []
     records_n = 0
     try:
         from src.blockchain import BlockchainManager
         from src.config import CONTRACT_ADDRESS, PRIVATE_KEY, RPC_URL
         from src.registry import fetch_all_records
+
         if CONTRACT_ADDRESS:
             bc = BlockchainManager(RPC_URL, PRIVATE_KEY, CONTRACT_ADDRESS)
             records_n = len(fetch_all_records(bc))
     except Exception:
         pass
-    cards.append(Panel(f"[bold cyan]{records_n}[/bold cyan]\n[dim]records anchored[/dim]", border_style="cyan"))
-    cards.append(Panel(f"[bold green]{_count_cache()}[/bold green]\n[dim]cached searches[/dim]", border_style="green"))
-    cards.append(Panel(f"[bold magenta]{_count_reports()}[/bold magenta]\n[dim]audit reports[/dim]", border_style="magenta"))
-    cards.append(Panel(f"[bold yellow]{_count_exports()}[/bold yellow]\n[dim]registry exports[/dim]", border_style="yellow"))
+    cards.append(
+        Panel(
+            f"[bold cyan]{records_n}[/bold cyan]\n[dim]records anchored[/dim]", border_style="cyan"
+        )
+    )
+    cards.append(
+        Panel(
+            f"[bold green]{_count_cache()}[/bold green]\n[dim]cached searches[/dim]",
+            border_style="green",
+        )
+    )
+    cards.append(
+        Panel(
+            f"[bold magenta]{_count_reports()}[/bold magenta]\n[dim]audit reports[/dim]",
+            border_style="magenta",
+        )
+    )
+    cards.append(
+        Panel(
+            f"[bold yellow]{_count_exports()}[/bold yellow]\n[dim]registry exports[/dim]",
+            border_style="yellow",
+        )
+    )
     return Columns(cards, equal=True, expand=True)
 
 
@@ -113,10 +135,12 @@ def _activity_panel() -> Panel:
     """Show recent pipeline run activity."""
     activities = _recent_activities()
     if not activities:
-        return Panel("[dim]No recent activity — run the pipeline to see results here.[/dim]", border_style="dim")
+        return Panel(
+            "[dim]No recent activity — run the pipeline to see results here.[/dim]",
+            border_style="dim",
+        )
     body = "\n".join(f"  • {a}" for a in activities)
     return Panel(body, title="[dim]recent activity[/dim]", border_style="dim")
-
 
 
 # ---------------------------------------------------------------- GUI helpers
@@ -182,8 +206,9 @@ def _status_header() -> Panel:
 
     node_ok = False
     try:
-        from src.config import RPC_URL
         from web3 import Web3
+
+        from src.config import RPC_URL
 
         w3 = Web3(Web3.HTTPProvider(RPC_URL))
         node_ok = w3.is_connected()
@@ -202,9 +227,7 @@ def _status_header() -> Panel:
         if CONTRACT_ADDRESS and node_ok:
             bc = BlockchainManager(RPC_URL, PRIVATE_KEY, CONTRACT_ADDRESS)
             n = len(fetch_all_records(bc))
-            rows.append(
-                ("Contract", f"[green]✔[/green] {CONTRACT_ADDRESS[:12]}… · {n} record(s)")
-            )
+            rows.append(("Contract", f"[green]✔[/green] {CONTRACT_ADDRESS[:12]}… · {n} record(s)"))
         else:
             rows.append(("Contract", "[yellow]–[/yellow] not deployed"))
     except Exception:
@@ -224,12 +247,22 @@ def _status_header() -> Panel:
     from src.config import SERPAPI_KEY
 
     rows.append(
-        ("SerpApi", "[green]✔[/green] live search ready" if SERPAPI_KEY else "[yellow]–[/yellow] not set (demo mode only)")
+        (
+            "SerpApi",
+            (
+                "[green]✔[/green] live search ready"
+                if SERPAPI_KEY
+                else "[yellow]–[/yellow] not set (demo mode only)"
+            ),
+        )
     )
 
     sample = "data/sample_face.jpg"
     rows.append(
-        ("Sample image", "[green]✔[/green] present" if os.path.exists(sample) else "[yellow]–[/yellow] missing")
+        (
+            "Sample image",
+            "[green]✔[/green] present" if os.path.exists(sample) else "[yellow]–[/yellow] missing",
+        )
     )
 
     grid = Table.grid(padding=(0, 2))
@@ -254,7 +287,6 @@ def capture_screen():
     if path:
         _toast(f"Captured → {path}")
     pause()
-
 
 
 def run_pipeline_wizard(demo: bool):
@@ -411,14 +443,20 @@ def live_screen():
 
     mode = select_option(
         "Choose input source",
-        [f"Use {sample_img}" if sample_img else "Capture from webcam (no sample image)", "Capture from webcam", "Cancel"],
+        [
+            f"Use {sample_img}" if sample_img else "Capture from webcam (no sample image)",
+            "Capture from webcam",
+            "Cancel",
+        ],
         default=0,
         allow_esc=True,
     )
     if mode is None or mode == 2:
         return
     if mode == 0 and not sample_img:
-        console.print("[yellow]⚠ No sample image available. Use 'Capture from webcam' or set HHG_SAMPLE_IMAGE.[/yellow]")
+        console.print(
+            "[yellow]⚠ No sample image available. Use 'Capture from webcam' or set HHG_SAMPLE_IMAGE.[/yellow]"
+        )
         pause()
         return
 

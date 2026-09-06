@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MASTER ACCURACY HARNESS - the single command that proves HHG is the
 winning repository for face-identity search.
 
@@ -16,11 +15,11 @@ Usage:
     python scripts/master_accuracy.py --quick      # skip slow axes (D, E)
     python scripts/master_accuracy.py --json       # machine-readable JSON output
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
@@ -79,6 +78,8 @@ def _parse_pytest_out(text: str) -> tuple[int, int]:
                 error = max(error, value)
     total = passed + failed + skipped + xfailed + xpassed + error
     return passed, total
+
+
 # ------------------------------------------------------------------ axis A
 def axis_a_name_torture() -> dict:
     """Axis A: 50+ pathological name-detection cases. Gate: 100%."""
@@ -93,9 +94,14 @@ def axis_a_name_torture() -> dict:
             passed = int(line.split(":")[-1].strip())
     pct = 100.0 * passed / total if total else 0.0
     return {
-        "axis": "A", "name": "Name-detection torture test",
-        "total": total, "passed": passed, "accuracy": round(pct, 1),
-        "gate": 100.0, "passed_gate": pct >= 100.0, "seconds": round(dt, 2),
+        "axis": "A",
+        "name": "Name-detection torture test",
+        "total": total,
+        "passed": passed,
+        "accuracy": round(pct, 1),
+        "gate": 100.0,
+        "passed_gate": pct >= 100.0,
+        "seconds": round(dt, 2),
     }
 
 
@@ -121,9 +127,14 @@ def axis_b_hard_eval() -> dict:
                 except ValueError:
                     pct = 100.0 * ok / total if total else 0.0
     return {
-        "axis": "B", "name": "Hard / camera-sim degradation",
-        "total": total, "passed": ok, "accuracy": round(pct, 1),
-        "gate": 90.0, "passed_gate": pct >= 90.0, "seconds": round(dt, 2),
+        "axis": "B",
+        "name": "Hard / camera-sim degradation",
+        "total": total,
+        "passed": ok,
+        "accuracy": round(pct, 1),
+        "gate": 90.0,
+        "passed_gate": pct >= 90.0,
+        "seconds": round(dt, 2),
     }
 
 
@@ -147,7 +158,8 @@ def axis_c_platform_coverage(live: bool = False) -> dict:
                     if "/" in frac_part:
                         a, b = frac_part.split("/")
                         metrics[key] = {
-                            "correct": int(a), "total": int(b),
+                            "correct": int(a),
+                            "total": int(b),
                             "pct": float(pct_part),
                         }
     worst_pct = min((m["pct"] for m in metrics.values()), default=0.0)
@@ -155,12 +167,18 @@ def axis_c_platform_coverage(live: bool = False) -> dict:
     total = person.get("total", max((m["total"] for m in metrics.values()), default=0))
     passed = person.get("correct", 0)
     return {
-        "axis": "C", "name": "Live platform coverage",
-        "total": total, "passed": passed,
-        "accuracy": round(worst_pct, 1), "gate": 90.0,
-        "passed_gate": worst_pct >= 90.0, "seconds": round(dt, 2),
+        "axis": "C",
+        "name": "Live platform coverage",
+        "total": total,
+        "passed": passed,
+        "accuracy": round(worst_pct, 1),
+        "gate": 90.0,
+        "passed_gate": worst_pct >= 90.0,
+        "seconds": round(dt, 2),
         "detail": {k: v["pct"] for k, v in metrics.items()},
     }
+
+
 # ------------------------------------------------------------------ axis D
 def axis_d_exact_image() -> dict:
     """Axis D: dHash exact-image matching + cross-platform scoring tests."""
@@ -173,9 +191,14 @@ def axis_d_exact_image() -> dict:
     passed, total = _parse_pytest_out(out + err)
     pct = 100.0 * passed / total if total else 0.0
     return {
-        "axis": "D", "name": "Exact-image across platforms",
-        "total": total, "passed": passed, "accuracy": round(pct, 1),
-        "gate": 90.0, "passed_gate": pct >= 90.0, "seconds": round(dt, 2),
+        "axis": "D",
+        "name": "Exact-image across platforms",
+        "total": total,
+        "passed": passed,
+        "accuracy": round(pct, 1),
+        "gate": 90.0,
+        "passed_gate": pct >= 90.0,
+        "seconds": round(dt, 2),
     }
 
 
@@ -193,9 +216,14 @@ def axis_e_uploaded_file() -> dict:
     passed, total = _parse_pytest_out(out + err)
     pct = 100.0 * passed / total if total else 0.0
     return {
-        "axis": "E", "name": "Uploaded-file end-to-end",
-        "total": total, "passed": passed, "accuracy": round(pct, 1),
-        "gate": 90.0, "passed_gate": pct >= 90.0, "seconds": round(dt, 2),
+        "axis": "E",
+        "name": "Uploaded-file end-to-end",
+        "total": total,
+        "passed": passed,
+        "accuracy": round(pct, 1),
+        "gate": 90.0,
+        "passed_gate": pct >= 90.0,
+        "seconds": round(dt, 2),
     }
 
 
@@ -211,30 +239,30 @@ def print_report(results: list[dict]) -> bool:
         status = "PASS" if r["passed_gate"] else "FAIL"
         if not r["passed_gate"]:
             all_pass = False
-        print(f"  Axis {r['axis']}: {r['name']:<36} "
-              f"{r['passed']:>3}/{r['total']:<3} "
-              f"{r['accuracy']:>6.1f}%  "
-              f"(gate >= {r['gate']:.0f}%)  [{status}]  "
-              f"{r['seconds']:.1f}s")
+        print(
+            f"  Axis {r['axis']}: {r['name']:<36} "
+            f"{r['passed']:>3}/{r['total']:<3} "
+            f"{r['accuracy']:>6.1f}%  "
+            f"(gate >= {r['gate']:.0f}%)  [{status}]  "
+            f"{r['seconds']:.1f}s"
+        )
         if "detail" in r:
             for k, v in r["detail"].items():
                 print(f"           ---- {k}: {v:.1f}%")
     print()
     print("-" * 78)
-    print(f"  OVERALL 5-AXIS GATE (>= gate% on every axis):  "
-          f"{'PASSED' if all_pass else 'FAILED'}")
+    print(
+        f"  OVERALL 5-AXIS GATE (>= gate% on every axis):  " f"{'PASSED' if all_pass else 'FAILED'}"
+    )
     print("=" * 78)
     return all_pass
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="HHG Master Accuracy Harness (5 axes)")
-    ap.add_argument("--live", action="store_true",
-                    help="run live SerpApi (charges quota)")
-    ap.add_argument("--quick", action="store_true",
-                    help="skip slow axes (D, E)")
-    ap.add_argument("--json", action="store_true",
-                    help="emit machine-readable JSON")
+    ap.add_argument("--live", action="store_true", help="run live SerpApi (charges quota)")
+    ap.add_argument("--quick", action="store_true", help="skip slow axes (D, E)")
+    ap.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = ap.parse_args()
 
     results = []

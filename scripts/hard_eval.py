@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Hardest-test harness: camera-sim accuracy + (optional) live name detection.
 
 Part A (free, no SerpApi): BIOMETRIC ROBUSTNESS. Every eval image is degraded
@@ -12,10 +11,10 @@ Part B (--live N): full pipeline identification on N degraded images.
 
 Gate: >= 90% on every degradation class.
 """
+
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -25,7 +24,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.face_engine import FaceEngine, SFACE_COSINE_THRESHOLD  # noqa: E402
+from src.face_engine import SFACE_COSINE_THRESHOLD, FaceEngine
 
 EVAL_DIR = ROOT / "data" / "eval"
 HARD_DIR = ROOT / "data" / "hard_eval"
@@ -40,11 +39,11 @@ VARIANTS = ("blur", "noise", "small", "lowjpeg", "rotate", "lowlight")
 # alignment shift (the cosine drift is a constant ~0.05-0.08 under these
 # distortions, regardless of the underlying identity).
 PER_VARIANT_THRESHOLD = {
-    "blur":    0.28,
-    "noise":   SFACE_COSINE_THRESHOLD,   # 0.363
-    "small":   SFACE_COSINE_THRESHOLD,
+    "blur": 0.28,
+    "noise": SFACE_COSINE_THRESHOLD,  # 0.363
+    "small": SFACE_COSINE_THRESHOLD,
     "lowjpeg": 0.30,
-    "rotate":  0.28,
+    "rotate": 0.28,
     "lowlight": SFACE_COSINE_THRESHOLD,
 }
 
@@ -57,8 +56,9 @@ def degrade(img: np.ndarray, variant: str) -> np.ndarray:
         return np.clip(img.astype(np.float32) + noise, 0, 255).astype(np.uint8)
     if variant == "small":
         h, w = img.shape[:2]
-        small = cv2.resize(img, (max(2, int(w * 0.3)), max(2, int(h * 0.3))),
-                           interpolation=cv2.INTER_AREA)
+        small = cv2.resize(
+            img, (max(2, int(w * 0.3)), max(2, int(h * 0.3))), interpolation=cv2.INTER_AREA
+        )
         return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
     if variant == "lowjpeg":
         ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 15])
@@ -66,8 +66,7 @@ def degrade(img: np.ndarray, variant: str) -> np.ndarray:
     if variant == "rotate":
         h, w = img.shape[:2]
         M = cv2.getRotationMatrix2D((w / 2, h / 2), 15, 1.0)
-        return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR,
-                              borderMode=cv2.BORDER_REFLECT)
+        return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
     if variant == "lowlight":
         return cv2.convertScaleAbs(img, alpha=0.35, beta=0)
     return img
@@ -83,8 +82,9 @@ def build_hard_corpus() -> int:
             continue
         for variant in VARIANTS:
             out = HARD_DIR / f"{src.stem}_{variant}.jpg"
-            ok, buf = cv2.imencode(".jpg", degrade(img, variant),
-                                   [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+            ok, buf = cv2.imencode(
+                ".jpg", degrade(img, variant), [int(cv2.IMWRITE_JPEG_QUALITY), 92]
+            )
             if ok:
                 out.write_bytes(buf.tobytes())
                 n += 1
@@ -119,7 +119,9 @@ def run_biometric_robustness(engine: FaceEngine) -> dict:
             engine.process_image(
                 str(src),
                 output_crop_path=str(ROOT / "temp" / f"_hard_{src.stem}_orig.jpg"),
-                skip_quality=True, ensemble=True)
+                skip_quality=True,
+                ensemble=True,
+            )
         except ValueError:
             continue
         orig_emb = engine.last_embedding
@@ -151,10 +153,11 @@ def run_biometric_robustness(engine: FaceEngine) -> dict:
                 try:
                     engine.process_image(
                         str(hard_path),
-                        output_crop_path=str(
-                            ROOT / "temp" / f"_hard_{src.stem}_{variant}.jpg"),
+                        output_crop_path=str(ROOT / "temp" / f"_hard_{src.stem}_{variant}.jpg"),
                         precomputed_face=hard_faces[i],
-                        skip_quality=True, ensemble=True)
+                        skip_quality=True,
+                        ensemble=True,
+                    )
                 except ValueError:
                     continue
                 sim = engine.cosine_similarity(orig_emb, engine.last_embedding)
@@ -169,10 +172,12 @@ def run_biometric_robustness(engine: FaceEngine) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Hard / camera-sim accuracy harness")
-    ap.add_argument("--rebuild", action="store_true",
-                    help="rebuild the degraded corpus in data/hard_eval/")
-    ap.add_argument("--min", type=float, default=90.0,
-                    help="minimum per-variant accuracy %% (default 90)")
+    ap.add_argument(
+        "--rebuild", action="store_true", help="rebuild the degraded corpus in data/hard_eval/"
+    )
+    ap.add_argument(
+        "--min", type=float, default=90.0, help="minimum per-variant accuracy %% (default 90)"
+    )
     args = ap.parse_args()
 
     print("=" * 76)
@@ -188,8 +193,10 @@ def main() -> int:
 
     total_n = total_ok = 0
     all_pass = True
-    print(f"\n{'variant':<10} {'imgs':>5} {'detected':>9} {'same-person':>12} "
-          f"{'det%':>7} {'match%':>8}  threshold  gate")
+    print(
+        f"\n{'variant':<10} {'imgs':>5} {'detected':>9} {'same-person':>12} "
+        f"{'det%':>7} {'match%':>8}  threshold  gate"
+    )
     print("-" * 76)
     for variant in VARIANTS:
         r = rows[variant]
@@ -199,15 +206,20 @@ def main() -> int:
         total_ok += r["same_person"]
         ok = match_rate >= args.min and det_rate >= args.min
         all_pass &= ok
-        print(f"{variant:<10} {r['n']:>5} {r['detected']:>9} {r['same_person']:>12} "
-              f"{det_rate:>6.1f}% {match_rate:>7.1f}%  "
-              f"{PER_VARIANT_THRESHOLD[variant]:.2f}     {'PASS' if ok else 'FAIL'}")
+        print(
+            f"{variant:<10} {r['n']:>5} {r['detected']:>9} {r['same_person']:>12} "
+            f"{det_rate:>6.1f}% {match_rate:>7.1f}%  "
+            f"{PER_VARIANT_THRESHOLD[variant]:.2f}     {'PASS' if ok else 'FAIL'}"
+        )
     overall = 100.0 * total_ok / total_n if total_n else 0.0
     print("-" * 76)
-    print(f"OVERALL same-person accuracy under degradation: {total_ok}/{total_n} = "
-          f"{overall:.1f}%")
-    print(f"GATE (>= {args.min:.0f}%): "
-          f"{'PASSED' if all_pass and overall >= args.min else 'FAILED'}")
+    print(
+        f"OVERALL same-person accuracy under degradation: {total_ok}/{total_n} = " f"{overall:.1f}%"
+    )
+    print(
+        f"GATE (>= {args.min:.0f}%): "
+        f"{'PASSED' if all_pass and overall >= args.min else 'FAILED'}"
+    )
     return 0 if (all_pass and overall >= args.min) else 1
 
 

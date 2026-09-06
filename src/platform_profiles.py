@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Multi-platform profile corroboration for the HHG pipeline.
 
 After Lens voting picks a name, this module verifies that the named person
@@ -25,6 +24,7 @@ publishes a "PLATFORM COVERAGE" line such as::
                         Facebook [profile-only]  X [profile-only]
                         LinkedIn [profile-only]  TikTok [image-match]
 """
+
 from __future__ import annotations
 
 import json
@@ -35,15 +35,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-import requests
-
 import cv2
 import numpy as np
+import requests
 
 # Reuse the user-agent + image fetcher from the biometric verifier so we
 # don't get blocked by the public platforms' anti-bot filters.
 try:
-    from src.biometric_verify import _UA as _USER_AGENT, fetch_image
+    from src.biometric_verify import _UA as _USER_AGENT
+    from src.biometric_verify import fetch_image
 except Exception:  # pragma: no cover - import safety
     _USER_AGENT = {
         "User-Agent": (
@@ -101,7 +101,7 @@ PLATFORM_DISPLAY = {
 # Exact-image dHash thresholds.  Avatars on most platforms are heavily
 # cropped and recompressed, so we tolerate more bit-flips than for
 # thumbnail-vs-thumbnail comparisons.
-EXACT_AVATAR_THRESHOLD = 14   # of 64 bits (raised from 12 to absorb heavier platform recompression)
+EXACT_AVATAR_THRESHOLD = 14  # of 64 bits (raised from 12 to absorb heavier platform recompression)
 EXACT_THUMBNAIL_THRESHOLD = 10  # of 64 bits (raised from 6; was too tight for real platform images)
 MAX_PARALLEL = 6
 TIMEOUT_PER_REQUEST = 8
@@ -115,13 +115,13 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 class PlatformHit:
     """One corroborated platform profile."""
 
-    platform: str          # canonical key, e.g. "instagram"
-    display_name: str      # human label, e.g. "Instagram"
-    profile_url: str       # the discovered profile URL
-    avatar_url: str = ""   # the og:image of the profile (may be empty)
+    platform: str  # canonical key, e.g. "instagram"
+    display_name: str  # human label, e.g. "Instagram"
+    profile_url: str  # the discovered profile URL
+    avatar_url: str = ""  # the og:image of the profile (may be empty)
     avatar_match: bool = False
     avatar_hamming: int | None = None
-    match_status: str = "PROFILE_ONLY"   # EXACT_IMAGE | AVATAR_MATCH | PROFILE_ONLY
+    match_status: str = "PROFILE_ONLY"  # EXACT_IMAGE | AVATAR_MATCH | PROFILE_ONLY
     source_query: str = ""  # the SerpApi query that surfaced this profile
 
     def to_dict(self) -> dict[str, Any]:
@@ -145,8 +145,9 @@ class PlatformCorroboration:
         return [h.display_name for h in self.hits]
 
     def platforms_with_image(self) -> list[str]:
-        return [h.display_name for h in self.hits
-                if h.match_status in ("EXACT_IMAGE", "AVATAR_MATCH")]
+        return [
+            h.display_name for h in self.hits if h.match_status in ("EXACT_IMAGE", "AVATAR_MATCH")
+        ]
 
     def coverage_count(self) -> int:
         return len(self.hits)
@@ -179,6 +180,7 @@ def _cache_key(name: str, sites: list[tuple[str, str]] | None = None) -> str:
     cache entries so callers asking for a subset (e.g. only Instagram) don't
     get back stale hits from a previous 14-platform run."""
     import hashlib
+
     name_lc = (name or "").lower().strip()
     sites_part = ",".join(f"{s}:{d}" for s, d in (sites or []))
     return hashlib.sha256(f"profiles:{name_lc}|sites:{sites_part}".encode()).hexdigest()[:32]
@@ -193,14 +195,15 @@ def _read_cache(name: str, sites: list[tuple[str, str]] | None = None) -> dict[s
     if not os.path.exists(p):
         return None
     try:
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return None
 
 
-def _write_cache(name: str, payload: dict[str, Any],
-                 sites: list[tuple[str, str]] | None = None) -> None:
+def _write_cache(
+    name: str, payload: dict[str, Any], sites: list[tuple[str, str]] | None = None
+) -> None:
     p = _cache_path(name, sites)
     try:
         with open(p, "w", encoding="utf-8") as f:
@@ -211,8 +214,7 @@ def _write_cache(name: str, payload: dict[str, Any],
 
 # ------------------------------------------------------------- dHash (mirrors src/image_match.py)
 def _dhash_bits(gray: np.ndarray, hash_size: int = 8) -> int:
-    resized = cv2.resize(gray, (hash_size + 1, hash_size),
-                         interpolation=cv2.INTER_AREA)
+    resized = cv2.resize(gray, (hash_size + 1, hash_size), interpolation=cv2.INTER_AREA)
     diff = resized[:, 1:] > resized[:, :-1]
     value = 0
     for b in diff.flatten():
@@ -240,16 +242,19 @@ def _og_image(url: str, timeout: int = 6) -> str:
     if not url:
         return ""
     try:
-        r = requests.get(url, timeout=timeout, headers=_USER_AGENT,
-                         allow_redirects=True)
+        r = requests.get(url, timeout=timeout, headers=_USER_AGENT, allow_redirects=True)
         if r.status_code != 200:
             return ""
         head = r.text[:120_000]
         for pat in (
-            re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
-                       re.IGNORECASE),
-            re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
-                       re.IGNORECASE),
+            re.compile(
+                r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                re.IGNORECASE,
+            ),
         ):
             m = pat.search(head)
             if m and m.group(1).startswith(("http://", "https://")):
@@ -259,31 +264,31 @@ def _og_image(url: str, timeout: int = 6) -> str:
     return ""
 
 
-def _serpapi_request(engine, name: str, domain: str,
-                     serpapi_key: str, timeout: int = 10) -> str | None:
+def _serpapi_request(
+    engine, name: str, domain: str, serpapi_key: str, timeout: int = 10
+) -> str | None:
     """Run a single `site:<domain> "<name>"` query and return the first
     matching organic-result URL, or None."""
     if not serpapi_key and engine is None:
         return None
     if engine is not None and hasattr(engine, "_request_search"):
         try:
-            data = engine._request_search(f'"{name}" site:{domain}',
-                                          timeout=timeout)
+            data = engine._request_search(f'"{name}" site:{domain}', timeout=timeout)
         except Exception:
             return None
     else:
         try:
             r = requests.get(
                 "https://serpapi.com/search.json",
-                params={"q": f'"{name}" site:{domain}',
-                        "api_key": serpapi_key, "num": 5},
-                timeout=timeout, headers=_USER_AGENT,
+                params={"q": f'"{name}" site:{domain}', "api_key": serpapi_key, "num": 5},
+                timeout=timeout,
+                headers=_USER_AGENT,
             )
             r.raise_for_status()
             data = r.json()
         except Exception:
             return None
-    for org in (data.get("organic_results") or []):
+    for org in data.get("organic_results") or []:
         link = (org.get("link") or "").lower()
         if domain in link:
             return org.get("link") or ""
@@ -331,8 +336,7 @@ def find_platform_profiles(
     hits: list[PlatformHit] = []
 
     def _query(site: str, domain: str) -> PlatformHit | None:
-        link = _serpapi_request(engine, name, domain, serpapi_key,
-                                timeout=per_request_timeout)
+        link = _serpapi_request(engine, name, domain, serpapi_key, timeout=per_request_timeout)
         if not link:
             return None
         return PlatformHit(
@@ -353,11 +357,15 @@ def find_platform_profiles(
                 hits.append(hit)
 
     if hits:
-        _write_cache(name, {
-            "name": name,
-            "hits": [h.to_dict() for h in hits],
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }, sites_tuple)
+        _write_cache(
+            name,
+            {
+                "name": name,
+                "hits": [h.to_dict() for h in hits],
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            },
+            sites_tuple,
+        )
 
     return hits
 
@@ -449,8 +457,7 @@ def corroborate(
             name=name,
             skipped_reason="no SERPAPI_KEY (corroboration requires SerpApi)",
         )
-    hits = find_platform_profiles(name, serpapi_key=serpapi_key,
-                                  engine=engine, sites=sites)
+    hits = find_platform_profiles(name, serpapi_key=serpapi_key, engine=engine, sites=sites)
     if query_image_path and hits:
         find_exact_image_per_platform(query_image_path, hits)
     return PlatformCorroboration(
@@ -461,15 +468,11 @@ def corroborate(
 
 
 __all__ = [
-    "PLATFORM_DOMAINS",
     "PLATFORM_DISPLAY",
-    "PlatformHit",
+    "PLATFORM_DOMAINS",
     "PlatformCorroboration",
+    "PlatformHit",
     "corroborate",
-    "find_platform_profiles",
     "find_exact_image_per_platform",
+    "find_platform_profiles",
 ]
-
-
-
-

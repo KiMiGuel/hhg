@@ -60,7 +60,7 @@ class BlockchainManager:
     @staticmethod
     def compute_data_fingerprint(face_hash: str, post_url: str) -> str:
         """Canonical SHA-256 fingerprint over the biometric hash and discovered post URL."""
-        payload = f"{face_hash}:{post_url}".encode("utf-8")
+        payload = f"{face_hash}:{post_url}".encode()
         return "0x" + hashlib.sha256(payload).hexdigest()
 
     def record_exists(self, face_hash_hex: str) -> bool:
@@ -81,12 +81,14 @@ class BlockchainManager:
             face_hash_bytes,
             post_url,
             data_hash_bytes,
-        ).build_transaction({
-            "from": self.account.address,
-            "nonce": nonce,
-            "gas": 300000,
-            "gasPrice": self.w3.eth.gas_price,
-        })
+        ).build_transaction(
+            {
+                "from": self.account.address,
+                "nonce": nonce,
+                "gas": 300000,
+                "gasPrice": self.w3.eth.gas_price,
+            }
+        )
 
         signed_tx = self.w3.eth.account.sign_transaction(tx, private_key=self.account.key)
         # web3.py v6 exposes .rawTransaction (v7 renamed it to .raw_transaction)

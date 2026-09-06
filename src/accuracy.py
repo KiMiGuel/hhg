@@ -4,13 +4,11 @@ These gates are deliberately conservative — the cost of *missing* a face in
 Hackathon judging is much higher than the cost of *trying* to match a slightly
 blurry face, so we warn but don't reject on marginal inputs.
 """
-from __future__ import annotations
 
-from typing import Tuple
+from __future__ import annotations
 
 import cv2
 import numpy as np
-
 from rich.console import Console
 
 console = Console()
@@ -31,10 +29,10 @@ MIN_FACE_PIXELS = 60
 # Quality gates. These are deliberately permissive — they WARN in the
 # report but never fail Stage 1, because for the hackathon demo we want
 # the pipeline to run end-to-end on every reasonable input.
-BLUR_MIN = 60.0          # Laplacian variance; <60 = very blurry
-BRIGHTNESS_MIN = 30.0    # mean gray; <30 = backlit
-BRIGHTNESS_MAX = 225.0   # mean gray; >225 = blown out
-CONTRAST_MIN = 25.0      # std gray; <25 = flat
+BLUR_MIN = 60.0  # Laplacian variance; <60 = very blurry
+BRIGHTNESS_MIN = 30.0  # mean gray; <30 = backlit
+BRIGHTNESS_MAX = 225.0  # mean gray; >225 = blown out
+CONTRAST_MIN = 25.0  # std gray; <25 = flat
 
 
 def validate_face_confidence(confidence: float) -> bool:
@@ -42,14 +40,14 @@ def validate_face_confidence(confidence: float) -> bool:
     return confidence >= MIN_FACE_CONFIDENCE
 
 
-def assess_face_quality(image: np.ndarray, bbox: Tuple[int, int, int, int]) -> dict:
+def assess_face_quality(image: np.ndarray, bbox: tuple[int, int, int, int]) -> dict:
     """Assess face crop quality: blur (Laplacian variance), brightness, contrast.
 
     Returns a dict with `pass`=True only if all three sub-tests pass.
     Used to WARN the user about a bad input but not to reject it.
     """
     x, y, w, h = bbox
-    face_roi = image[y:y + h, x:x + w]
+    face_roi = image[y : y + h, x : x + w]
     if face_roi.size == 0:
         return _fail_dict("empty crop")
     gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY) if len(face_roi.shape) == 3 else face_roi
@@ -76,9 +74,12 @@ def assess_face_quality(image: np.ndarray, bbox: Tuple[int, int, int, int]) -> d
 
 def _fail_dict(reason: str) -> dict:
     return {
-        "blur_score": 0.0, "blur_pass": False,
-        "brightness": 0.0, "brightness_pass": False,
-        "contrast": 0.0, "contrast_pass": False,
+        "blur_score": 0.0,
+        "blur_pass": False,
+        "brightness": 0.0,
+        "brightness_pass": False,
+        "contrast": 0.0,
+        "contrast_pass": False,
         "pass": False,
         "reason": reason,
     }

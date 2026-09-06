@@ -66,7 +66,11 @@ def file_info(path: Path) -> dict:
 
 def main() -> int:
     reports = sorted(
-        [p for p in REPORTS.glob("report_*.json") if datetime.fromtimestamp(p.stat().st_mtime) >= START],
+        [
+            p
+            for p in REPORTS.glob("report_*.json")
+            if datetime.fromtimestamp(p.stat().st_mtime) >= START
+        ],
         key=lambda p: p.stat().st_mtime,
     )
     cache_files = sorted((ROOT / "cache").glob("*.json")) if (ROOT / "cache").exists() else []
@@ -77,7 +81,11 @@ def main() -> int:
         "fresh_cache_files": len(cache_files),
         "new_report_jsons_since_start": len(reports),
         "latest_report": str(reports[-1]) if reports else "",
-        "latest_report_mtime": datetime.fromtimestamp(reports[-1].stat().st_mtime).isoformat(timespec="seconds") if reports else "",
+        "latest_report_mtime": (
+            datetime.fromtimestamp(reports[-1].stat().st_mtime).isoformat(timespec="seconds")
+            if reports
+            else ""
+        ),
         "status": file_info(REPORTS / f"online_cold_accuracy_benchmark_{STAMP}.status.json"),
         "stdout": file_info(REPORTS / f"online_cold_accuracy_benchmark_{STAMP}.txt"),
         "stderr": file_info(REPORTS / f"online_cold_accuracy_benchmark_{STAMP}.stderr.txt"),

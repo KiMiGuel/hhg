@@ -11,18 +11,16 @@ the failure modes we saw in the wild:
 
 The scorer is pure — no Anvil, no SerpApi, no models needed.
 """
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.web_search import (
     LensMatch,
-    WebSearchEngine,
     _looks_like_person,
     _score_visual_match,
 )
@@ -171,9 +169,7 @@ class TestScoreVisualMatch:
 
 class TestLooksLikePerson:
     def test_two_cap_words_is_person(self):
-        assert _looks_like_person(
-            {"title": "Satya Nadella", "link": "https://example.com/x"}
-        )
+        assert _looks_like_person({"title": "Satya Nadella", "link": "https://example.com/x"})
 
     def test_three_cap_words_is_person(self):
         assert _looks_like_person(
@@ -188,9 +184,7 @@ class TestLooksLikePerson:
         )
 
     def test_rip_prefix_rejected(self):
-        assert not _looks_like_person(
-            {"title": "RIP John Smith", "link": "https://x.com/"}
-        )
+        assert not _looks_like_person({"title": "RIP John Smith", "link": "https://x.com/"})
 
     def test_wiki_url_path_is_person(self):
         assert _looks_like_person(
@@ -214,34 +208,52 @@ class TestPipelineResultSelection:
         # real Wikipedia match at rank 1 but a generic LinkedIn profile
         # bubbled up via consensus.
         candidates = [
-            _m("Satya Nadella - Wikipedia",
-               "https://en.wikipedia.org/wiki/Satya_Nadella",
-               platform="wikipedia", rank=1),
-            _m("Prasad Wagh - Writer / Director",
-               "https://in.linkedin.com/in/prasad-wagh-4b3515141",
-               platform="linkedin.com", rank=5),
-            _m("Akash Sajikumar - Research Scholar",
-               "https://in.linkedin.com/in/akash-sajikumar-8831b2135",
-               platform="linkedin.com", rank=6),
+            _m(
+                "Satya Nadella - Wikipedia",
+                "https://en.wikipedia.org/wiki/Satya_Nadella",
+                platform="wikipedia",
+                rank=1,
+            ),
+            _m(
+                "Prasad Wagh - Writer / Director",
+                "https://in.linkedin.com/in/prasad-wagh-4b3515141",
+                platform="linkedin.com",
+                rank=5,
+            ),
+            _m(
+                "Akash Sajikumar - Research Scholar",
+                "https://in.linkedin.com/in/akash-sajikumar-8831b2135",
+                platform="linkedin.com",
+                rank=6,
+            ),
         ]
         scores = [(_score_visual_match(c)[0], c) for c in candidates]
         scores.sort(key=lambda t: t[0], reverse=True)
         winner = scores[0][1]
-        assert "Satya Nadella" in winner.title, (
-            f"Expected Wikipedia match for Satya Nadella, got: {winner.title}"
-        )
+        assert (
+            "Satya Nadella" in winner.title
+        ), f"Expected Wikipedia match for Satya Nadella, got: {winner.title}"
 
     def test_virat_kohli_picked(self):
         candidates = [
-            _m("Virat Kohli - Wikipedia",
-               "https://en.wikipedia.org/wiki/Virat_Kohli",
-               platform="wikipedia", rank=1),
-            _m("Virat Kohli - Simple English Wikipedia",
-               "https://simple.wikipedia.org/wiki/Virat_Kohli",
-               platform="wikipedia", rank=2),
-            _m('Pawan Kumar Verma - "Sachi khushi wahi hai"',
-               "https://in.linkedin.com/in/pawan-kumar-verma-290bb7208",
-               platform="linkedin.com", rank=12),
+            _m(
+                "Virat Kohli - Wikipedia",
+                "https://en.wikipedia.org/wiki/Virat_Kohli",
+                platform="wikipedia",
+                rank=1,
+            ),
+            _m(
+                "Virat Kohli - Simple English Wikipedia",
+                "https://simple.wikipedia.org/wiki/Virat_Kohli",
+                platform="wikipedia",
+                rank=2,
+            ),
+            _m(
+                'Pawan Kumar Verma - "Sachi khushi wahi hai"',
+                "https://in.linkedin.com/in/pawan-kumar-verma-290bb7208",
+                platform="linkedin.com",
+                rank=12,
+            ),
         ]
         scores = [(_score_visual_match(c)[0], c) for c in candidates]
         scores.sort(key=lambda t: t[0], reverse=True)

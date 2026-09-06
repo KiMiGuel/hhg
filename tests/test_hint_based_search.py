@@ -14,6 +14,7 @@ The pipeline now has two depth-improving strategies when Lens returns nothing:
 
 These tests pin both behaviors so a regression doesn't slip back in.
 """
+
 from __future__ import annotations
 
 import sys
@@ -28,42 +29,49 @@ sys.path.insert(0, str(ROOT))
 
 from src.web_search import WebSearchEngine
 
-
 # --- Name-hint extractor ----------------------------------------------------------
+
 
 def test_name_hint_two_capitalized_words():
     import pipeline
+
     assert pipeline._derive_name_hint_from_path("data/saurav_joshi.jpg") == "Saurav Joshi"
 
 
 def test_name_hint_drops_generic_suffix():
     import pipeline
+
     assert pipeline._derive_name_hint_from_path("data/Virat-Kohli-cricket.png") == "Virat Kohli"
 
 
 def test_name_hint_drops_stopwords():
     import pipeline
+
     assert pipeline._derive_name_hint_from_path("data/sample_face.jpg") is None
     assert pipeline._derive_name_hint_from_path("data/captured_face.jpg") is None
 
 
 def test_name_hint_drops_company_suffix():
     import pipeline
+
     assert pipeline._derive_name_hint_from_path("data/satya_nadella_msft.webp") == "Satya Nadella"
 
 
 def test_name_hint_skips_one_token_files():
     import pipeline
+
     assert pipeline._derive_name_hint_from_path("data/img_2024.jpg") is None
     assert pipeline._derive_name_hint_from_path("data/just_one_token.jpg") == "Just One"
 
 
 # --- Wikipedia hint-based search --------------------------------------------------
 
+
 def test_hint_based_search_finds_real_person(monkeypatch):
     """The hint search should return a LensResult pointing at the real Wikipedia
     page for a verifiable public figure."""
     import pipeline
+
     eng = WebSearchEngine.__new__(WebSearchEngine)
     result = pipeline._hint_based_search("Satya Nadella", eng)
     assert result is not None
@@ -78,6 +86,7 @@ def test_hint_based_search_rejects_wrong_article(monkeypatch):
     pipeline abstains instead of confidently linking the wrong page.
     Regression test for the Hate-Story-3 bug."""
     import pipeline
+
     eng = WebSearchEngine.__new__(WebSearchEngine)
     result = pipeline._hint_based_search("Saurav Joshi", eng)
     assert result is None  # honest abstain beats a confidently-wrong link
@@ -86,14 +95,19 @@ def test_hint_based_search_rejects_wrong_article(monkeypatch):
 def test_hint_page_is_person_validator():
     """Unit-check the biography validator directly."""
     import pipeline
+
     # Real person page: passes.
     assert pipeline._hint_page_is_person(
-        "Satya Nadella", "Satya Nadella is an Indian-American business executive...",
-        "Satya Nadella")
+        "Satya Nadella",
+        "Satya Nadella is an Indian-American business executive...",
+        "Satya Nadella",
+    )
     # Movie page that merely shares a word: rejected.
     assert not pipeline._hint_page_is_person(
-        "Hate Story 3", "Hate Story 3 is a 2015 Indian Hindi-language erotic thriller...",
-        "Saurav Joshi")
+        "Hate Story 3",
+        "Hate Story 3 is a 2015 Indian Hindi-language erotic thriller...",
+        "Saurav Joshi",
+    )
     # Same-name movie with the surname present: heuristic returns True
     # (the name tokens match the title), so callers must additionally
     # check Wikipedia's page type via the REST summary's "type" field
@@ -102,6 +116,7 @@ def test_hint_page_is_person_validator():
 
 
 # --- Cascade ---------------------------------------------------------------------
+
 
 @pytest.fixture
 def tmp_cache(monkeypatch):
@@ -146,8 +161,10 @@ def test_parallel_engines_all_queried_and_merged(tmp_cache):
         engines_seen.append((extra_params or {}).get("engine"))
         return _populated()
 
-    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request), \
-         patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"),
+    ):
         result = eng.search_face_on_web(
             "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
         )
@@ -168,8 +185,10 @@ def test_parallel_merge_deduplicates_same_link(tmp_cache):
     def fake_request(url, policy="social", extra_params=None):
         return _populated()
 
-    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request), \
-         patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"),
+    ):
         result = eng.search_face_on_web(
             "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
         )
@@ -191,8 +210,10 @@ def test_parallel_merge_uses_populated_engine_when_others_empty(tmp_cache):
             return _empty()
         return _populated()
 
-    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request), \
-         patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"),
+    ):
         result = eng.search_face_on_web(
             "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
         )
@@ -210,8 +231,10 @@ def test_cascade_tries_all_engines_when_all_empty(tmp_cache):
         engines_seen.append((extra_params or {}).get("engine"))
         return _empty()
 
-    with patch.object(eng, "_request_serpapi_engine", side_effect=fake_request), \
-         patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"):
+    with (
+        patch.object(eng, "_request_serpapi_engine", side_effect=fake_request),
+        patch.object(eng, "_upload_bytes", return_value="https://catbox.moe/x.jpg"),
+    ):
         result = eng.search_face_on_web(
             "https://catbox.moe/x.jpg", face_hash="f", image_sha256="abc"
         )
