@@ -57,6 +57,14 @@ OFFICIAL_TLDS_HINT = (".gov", ".edu", ".org", ".io")
 EXACT_IMAGE_SCORE_BOOST = 200
 
 CATBOX_UPLOAD_URL = "https://catbox.moe/user/api.php"
+# catbox.moe now blocks non-browser clients with HTTP 412 "Invalid uploader",
+# and tmpfiles.org's /dl/ direct-link trick was retired (both link formats
+# now serve an HTML viewer page instead of the raw file) -- neither host is
+# usable by Google Lens anymore. freeimage.host is the working replacement;
+# this is their published shared/demo API key (same one used by ShareX and
+# other open-source uploaders), not a private credential.
+FREEIMAGE_UPLOAD_URL = "https://freeimage.host/api/1/upload"
+FREEIMAGE_API_KEY = "6d207e02198a847aa98d0a2a901485a5"
 TMPFILES_UPLOAD_URL = "https://tmpfiles.org/api/v1/upload"
 SERPAPI_SEARCH_URL = "https://serpapi.com/search.json"
 
@@ -976,7 +984,8 @@ class WebSearchEngine:
         return self._upload_bytes(image_bytes, source_path="<bytes>")
 
     def _upload_bytes(self, image_bytes: bytes, source_path: str) -> str:
-        """Catbox first (direct crawlable URL), then tmpfiles fallback.
+        """Catbox first (direct crawlable URL), then freeimage.host, then
+        tmpfiles as a last resort.
 
         Uses an in-memory BytesIO so we skip the temp-file write/read
         round-trip when the caller already has the JPEG bytes in hand.
@@ -995,6 +1004,20 @@ class WebSearchEngine:
 
         try:
             resp = requests.post(
+                FREEIMAGE_UPLOAD_URL,
+                data={"key": FREEIMAGE_API_KEY, "action": "upload", "format": "json"},
+                files={"source": ("face.jpg", io.BytesIO(image_bytes), "image/jpeg")},
+                timeout=UPLOAD_TIMEOUT_SECONDS,
+            )
+            if resp.status_code == 200:
+                direct_url = (resp.json().get("image") or {}).get("url", "")
+                if direct_url.startswith("https://"):
+                    return direct_url
+        except requests.RequestException:
+            pass
+
+        try:
+            resp = requests.post(
                 TMPFILES_UPLOAD_URL,
                 files={"file": ("face.jpg", io.BytesIO(image_bytes), "image/jpeg")},
                 timeout=UPLOAD_TIMEOUT_SECONDS,
@@ -1006,7 +1029,9 @@ class WebSearchEngine:
             raw_url = resp.json()["data"]["url"]
             return raw_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
         except Exception as e:
-            raise RuntimeError(f"Image upload failed on catbox.moe and tmpfiles.org: {e}") from e
+            raise RuntimeError(
+                f"Image upload failed on catbox.moe, freeimage.host, and tmpfiles.org: {e}"
+            ) from e
 
     # ------------------------------------------------------------- serpapi
     def _request_serpapi(self, image_url: str, policy: str = "social") -> dict[str, Any]:
@@ -2219,9 +2244,17 @@ class WebSearchEngine:
             image_sha256=image_sha256,
             policy=policy,
         )
+        if "catbox.moe" in public_url:
+            upload_host = "catbox.moe"
+        elif "iili.io" in public_url or "freeimage" in public_url:
+            upload_host = "freeimage.host"
+        elif "tmpfiles.org" in public_url:
+            upload_host = "tmpfiles.org"
+        else:
+            upload_host = "unknown"
         lens.upload_ms = upload_ms
-        lens.upload_host = "catbox.moe"
-        return (public_url, lens, upload_ms, lens.lens_ms, "catbox.moe")
+        lens.upload_host = upload_host
+        return (public_url, lens, upload_ms, lens.lens_ms, upload_host)
 
     def search_with_consensus(
         self,
